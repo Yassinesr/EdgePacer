@@ -1,7 +1,8 @@
 import unittest
 from dataclasses import replace
 
-from pacer import CAP, Pacer, Rider, Section, beat, choose, coeffs, fastest, ride_time, sections_from_profile, speed_for
+from pacer import (CAP, Pacer, Rider, Section, beat, choose, coeffs, fastest, ftp_out_of_date, ride_time,
+                   sections_from_profile, speed_for)
 
 RIDER = Rider(72, ftp=300)
 CLIMB = sections_from_profile([0, 500, 1200, 1500, 2400, 3000], [500, 525, 581, 590, 671, 707])
@@ -34,10 +35,17 @@ class RiderTest(unittest.TestCase):
         self.assertAlmostEqual(RIDER.cda, 0.32)
         self.assertGreater(Rider(100, ftp=300).cda, RIDER.cda)
 
-    def test_max_power_falls_to_ftp_at_one_hour(self):
+    def test_max_power_falls_to_ftp_at_one_hour_and_never_exceeds_1_5_ftp(self):
         self.assertAlmostEqual(RIDER.max_power(3600), 300)
         self.assertAlmostEqual(RIDER.max_power(7200), 300)
         self.assertGreater(RIDER.max_power(300), 300)
+        self.assertEqual(RIDER.max_power(10), 450)  # the curve alone would allow 644 W in the last minute
+
+    def test_reserve_drains_above_ftp_and_refills_below(self):
+        full = RIDER.w_prime
+        self.assertAlmostEqual(RIDER.w_after(full, 400, 60), full - 6000)
+        self.assertGreater(RIDER.w_after(full - 6000, 200, 60), full - 6000)
+        self.assertLess(RIDER.max_power(300, w_left=full / 4), RIDER.max_power(300))
 
 
 class PhysicsTest(unittest.TestCase):
@@ -68,11 +76,18 @@ class TargetTest(unittest.TestCase):
         self.assertEqual(names(choose(CLIMB, RIDER, kom_s=BEST - 60, pr_s=BEST + 90)), ["PR", "Fastest"])
         self.assertEqual(names(choose(CLIMB, RIDER, kom_s=BEST - 60)), ["Fastest"])
 
-    def test_pr_ride_power_above_the_ftp_curve_raises_the_ftp(self):
-        pr_s = BEST - 20  # faster than the Garmin FTP says is possible...
-        p = choose(CLIMB, RIDER, pr_s=pr_s, pr_watts=RIDER.max_power(pr_s) * 1.1)  # ...and measured 10 % above it
-        self.assertAlmostEqual(p.rider.ftp, 330, delta=0.5)
-        self.assertEqual(p.name, "PR")
+    def test_ftp_out_of_date_is_only_a_warning(self):
+        pr_s = BEST - 20  # a PR faster than the Garmin FTP says is possible
+        self.assertTrue(ftp_out_of_date(RIDER, pr_s, RIDER.curve(pr_s) * 1.1))
+        self.assertFalse(ftp_out_of_date(RIDER, pr_s, RIDER.curve(pr_s) * 0.9))
+        self.assertFalse(ftp_out_of_date(RIDER, pr_s, None))  # estimated power is never used
+        self.assertEqual(choose(CLIMB, RIDER, pr_s=pr_s).name, "Fastest")  # the FTP is not raised behind the rider's back
+
+    def test_a_tired_rider_drops_a_target_sooner(self):
+        p = choose(CLIMB, RIDER, pr_s=BEST + 30)
+        at = p.planned_time(1500) + 8
+        self.assertEqual(p.now(1500, at)[0], "PR")
+        self.assertEqual(choose(CLIMB, RIDER, pr_s=BEST + 30).now(1500, at, w_left=0)[0], "Fastest")
 
 
 class LiveTest(unittest.TestCase):
@@ -96,6 +111,23 @@ class LiveTest(unittest.TestCase):
         rest = [i for i in range(len(CLIMB)) if sum(LENGTHS[:i]) >= 1500 - 1e-6]
         cap, _ = fastest([LENGTHS[i] for i in rest], [AB[i] for i in rest], RIDER)
         self.assertAlmostEqual(watts, cap, delta=0.5)
+
+    def test_no_watts_right_after_a_stop_but_the_gap_keeps_counting(self):
+        planned = self.p.planned_time(1500)
+        _, watts, gap = self.p.now(1500, planned + 40, since_stop_s=5)
+        self.assertIsNone(watts)
+        self.assertAlmostEqual(gap, -40)
+        self.assertIsNotNone(self.p.now(1500, planned + 40, since_stop_s=15)[1])
+
+    def test_after_steady_riding_watts_come_from_the_riders_own_power(self):
+        planned = self.p.planned_time(1500)
+        _, model_watts, _ = self.p.now(1500, planned)
+        a, b = AB[9]  # the 9 % section that starts at 1500 m
+        v = speed_for(model_watts, a, b)
+        real = 1.1 * (a * v + b * v ** 3)  # this rider really needs 10 % more than the model says at that speed
+        _, watts, _ = self.p.now(1500, planned, power=real, speed=v, steady_s=30)
+        self.assertAlmostEqual(watts, 1.1 * model_watts, delta=0.5)
+        self.assertEqual(self.p.now(1500, planned, power=real, speed=v, steady_s=5)[1], model_watts)  # not steady yet
 
     def test_gap_is_against_target_pace_not_the_pr_ride(self):
         # audit case: PR 600 s, target 594 s; 1 s behind target pace at halfway must read -1 s, not +2 s

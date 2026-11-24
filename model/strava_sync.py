@@ -32,6 +32,7 @@ OUT = Path(__file__).parent / "data" / "segments.json"
 PORT = 8723
 FRESH = 12 * 3600  # s; KOM and PR times older than this are fetched again
 MIN_GRADE = 2.0    # %, EdgePacer paces climbs this steep or steeper, so only they get a ghost
+GHOST_STEP_M = 25.0
 
 
 class RateLimited(Exception):
@@ -66,8 +67,8 @@ def sign_in(client_id, client_secret):
 
     url = "https://www.strava.com/oauth/authorize?" + urllib.parse.urlencode({
         "client_id": client_id, "response_type": "code", "redirect_uri": f"http://localhost:{PORT}/",
-        # read_all: private routes; activity:read_all: your PR rides, for the ghosts
-        "approval_prompt": "auto", "scope": "read,read_all,activity:read_all", "state": state})
+        # read_all: your private saved routes; activity:read: your PR rides, for the ghosts (private ones stay private)
+        "approval_prompt": "auto", "scope": "read,read_all,activity:read", "state": state})
     print("Sign in to Strava in your browser:", url)
     webbrowser.open(url)
     with http.server.HTTPServer(("localhost", PORT), Handler) as server:
@@ -79,7 +80,7 @@ def sign_in(client_id, client_secret):
                       "code": reply["code"], "grant_type": "authorization_code"})
     tok = {k: tok[k] for k in ("access_token", "refresh_token", "expires_at")} | {"athlete_id": tok["athlete"]["id"],
                                                                                 "scope": reply.get("scope", "")}
-    if "activity:read_all" not in tok["scope"]:
+    if "activity:read" not in tok["scope"]:
         print("Without permission to read your rides there are no ghosts. Run again and keep that box ticked.")
     save_token(tok)
     return tok
@@ -90,7 +91,7 @@ def access_token():
     if not client_id or not client_secret:
         raise SystemExit("Set STRAVA_CLIENT_ID and STRAVA_CLIENT_SECRET first (see the top of strava_sync.py).")
     tok = json.loads(TOKEN.read_text()) if TOKEN.exists() else {}
-    if "activity:read_all" not in tok.get("scope", ""):  # no login yet, or one that can't read rides
+    if "activity:read" not in tok.get("scope", ""):  # no login yet, or one that can't read rides
         tok = sign_in(client_id, client_secret)
     if tok["expires_at"] < time.time() + 60:  # Strava logins last 6 hours
         new = post_token({"client_id": client_id, "client_secret": client_secret,
@@ -114,8 +115,8 @@ def getter(access):
 
 
 def pr_ghost(get, sid, pr_s):
-    """(ghost, pr_watts, why). ghost: your PR ride on the segment as {"distance", "time"} from its start, about
-    100 points. pr_watts: its measured average power, None if Strava estimated it. why: the reason there is no ghost."""
+    """(ghost, pr_watts, why). ghost: your PR ride on the segment as {"distance", "time"} from its start, one
+    point every GHOST_STEP_M. pr_watts: its measured average power, None if Strava estimated it. why: the reason there is no ghost."""
     try:
         efforts = get("/segment_efforts", segment_id=sid, per_page=200)
     except urllib.error.HTTPError:
@@ -131,8 +132,12 @@ def pr_ghost(get, sid, pr_s):
     t, d = s["time"]["data"][i0:i1 + 1], s["distance"]["data"][i0:i1 + 1]
     if len(t) < 2:
         return None, None, "the PR ride has no data on this segment"
-    step = max(1, len(t) // 100)  # the Edge holds every climb's ghost in memory
-    idx = list(range(0, len(t) - 1, step)) + [len(t) - 1]
+    idx = [0]  # one point every GHOST_STEP_M: the Edge holds every climb's ghost in memory
+    for i in range(1, len(d)):
+        if d[i] - d[idx[-1]] >= GHOST_STEP_M:
+            idx.append(i)
+    if idx[-1] != len(d) - 1:
+        idx.append(len(d) - 1)
     ghost = {"distance": [d[i] - d[0] for i in idx], "time": [t[i] - t[0] for i in idx]}
     return ghost, e.get("average_watts") if e.get("device_watts") else None, None
 
@@ -166,6 +171,7 @@ def collect(get, athlete_id, known, found):
                         ghost, pr_watts, why = pr_ghost(get, sid, pr_s)
                     found[sid] = {
                         "id": sid, "name": seg["name"], "distance_m": seg["distance"], "avg_grade": seg["average_grade"],
+                        "hazardous": bool(seg.get("hazardous")),  # never paced
                         "kom_s": parse_time(xoms["kom"]) if xoms.get("kom") else None,
                         "qom_s": parse_time(xoms["qom"]) if xoms.get("qom") else None,
                         "pr_s": pr_s, "pr_date": mine.get("pr_date"),

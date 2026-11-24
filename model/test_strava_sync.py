@@ -3,7 +3,7 @@ import unittest
 import urllib.error
 
 from pacer import parse_time
-from strava_sync import RateLimited, sync
+from strava_sync import RateLimited, pr_ghost, sync
 
 PROFILE = {"distance": [0, 300], "altitude": [10, 30], "latlng": [[32.0, 118.8], [32.0, 118.9]]}
 GHOST = {"distance": [0, 280, 559], "time": [0, 60, 120]}
@@ -21,7 +21,7 @@ def fake_strava(limit_after=None, not_found=None, efforts=EFFORTS):
         "/routes/12": {"name": "Wall repeats", "segments": [{"id": 7}]},
         "/segments/7": {"name": "Wall", "distance": 559, "average_grade": 4.9, "xoms": {"kom": "1:21", "qom": "1:40"},
                         "athlete_segment_stats": {"pr_elapsed_time": 120, "pr_date": "2026-04-11"}},
-        "/segments/8": {"name": "Kicker", "distance": 300, "average_grade": 6.0, "xoms": {"kom": "45s"}},
+        "/segments/8": {"name": "Kicker", "distance": 300, "average_grade": 6.0, "xoms": {"kom": "45s"}, "hazardous": True},
         "/segments/7/streams": {k: {"data": v} for k, v in PROFILE.items()},
         "/segments/8/streams": {k: {"data": v} for k, v in PROFILE.items()},
         "/segment_efforts": efforts,
@@ -52,6 +52,17 @@ class SyncTest(unittest.TestCase):
         self.assertEqual(segments["7"]["ghost"], GHOST)  # the 120 s effort, cut to the segment
         self.assertIsNone(segments["8"]["ghost"])  # never ridden
         self.assertEqual(segments["7"]["pr_watts"], 310.0)
+        self.assertEqual((segments["7"]["hazardous"], segments["8"]["hazardous"]), (False, True))
+
+    def test_ghost_keeps_one_point_every_25_m(self):
+        n = 601  # a 600 m PR ride recorded every metre
+        stream = {"time": {"data": [i * 0.3 for i in range(n)]}, "distance": {"data": [float(i) for i in range(n)]}}
+        effort = [{"elapsed_time": 180, "activity": {"id": 5}, "start_index": 0, "end_index": n - 1}]
+        get = lambda path, **_: effort if path == "/segment_efforts" else stream
+        ghost, _, _ = pr_ghost(get, "7", 180)
+        self.assertEqual(len(ghost["distance"]), 25)  # 0, 25, ..., 600
+        self.assertEqual(ghost["distance"][-1], 600.0)
+        self.assertAlmostEqual(ghost["time"][-1], 180.0)
 
     def test_ghost_is_the_pr_ride_itself_or_none_with_a_reason(self):
         get, _ = fake_strava(efforts=EFFORTS[:1])  # the PR is beyond the listed efforts, only a slower one is there
