@@ -150,6 +150,8 @@ Use the secant method outside and Newton's method inside, starting from last sec
 
 ### 6.4 Pacing screen (full-screen layout)
 
+Mockups of every screen, at Edge 540/840 size: [layout/mockups.png](layout/mockups.png) (source: `layout/mockups.html`).
+
 - **Target watts now**, large, rounded to 5 W. It only changes when the target moves ≥ 5 W or at a section change, so it doesn't flicker.
 - **Your 3 s power,** coloured: green within ±3 % of target, orange above, red below.
 - **Gap:** "+4 s" ahead or "−3 s" behind, plus the projected finish.

@@ -1,0 +1,121 @@
+<!doctype html><html><head><meta charset="utf-8"><title>EdgePacer layout</title><style>
+
+body { margin:0; padding:24px; background:#E4E4E4; font-family:'Inter','IPAGothic',sans-serif; }
+h1 { font-size:18px; margin:0 0 4px; } p.note { margin:0 0 18px; font-size:12px; color:#444; max-width:1100px; }
+.sheet { display:grid; grid-template-columns:repeat(3, 246px); gap:28px 40px; }
+figure { margin:0; } figcaption { font-size:12px; color:#333; margin-top:6px; text-align:center; }
+.f { position:relative; width:246px; height:322px; overflow:hidden; outline:2px solid #666; font-family:'Inter Display','Inter','IPAGothic',sans-serif; }
+.day { background:#FFFFFF; color:#000000; --lab:#555555; --lt:#AAAAAA; --done:#555555; --line:#000000; --ok:#00AA00; --bad:#FF0000; --hi:#FF5500; --res:#00AAFF; }
+.night { background:#000000; color:#FFFFFF; --lab:#AAAAAA; --lt:#555555; --done:#AAAAAA; --line:#FFFFFF; --ok:#00FF00; --bad:#FF0000; --hi:#FF5500; --res:#00AAFF; }
+.abs { position:absolute; }
+.name { left:16px; right:16px; top:3px; font-size:12px; font-weight:600; color:var(--lab); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.title { left:16px; right:16px; font-size:18px; font-weight:700; line-height:20px; }
+.row { left:16px; font-size:15px; font-weight:700; }
+.badge { display:inline-block; background:var(--line); color:var(--bg, #fff); padding:0 5px; font-size:12px; line-height:17px; font-weight:800; margin-right:4px; }
+.night .badge { color:#000; }
+.lab { font-size:11px; font-weight:600; color:var(--lab); }
+.big { width:100%; text-align:center; font-size:86px; font-weight:800; line-height:84px; letter-spacing:-2px; }
+.unit { font-size:18px; font-weight:700; margin-left:3px; letter-spacing:0; }
+.small { font-size:13px; }
+.mid { font-size:20px; font-weight:800; }
+.gap { left:16px; font-size:40px; font-weight:800; line-height:44px; }
+.rule { left:16px; right:16px; height:1px; background:var(--lt); }
+.banner { left:16px; right:16px; height:38px; background:var(--hi); color:#FFFFFF; font-size:24px; font-weight:800; line-height:38px; text-align:center; }
+.verdict { background:var(--hi); color:#FFFFFF; font-size:13px; font-weight:800; padding:1px 6px; }
+.win { background:var(--ok); color:#FFFFFF; font-size:20px; font-weight:800; padding:2px 10px; }
+
+</style></head><body>
+<h1>EdgePacer data field: layout mockups</h1>
+<p class="note">Edge 540 / 840 full-screen field, 246 × 322 px, only colours the Edge can show. Real plan for your “last climb to longpan rd” (402 m, 8.1 %): PR 1:42, 100 kg, FTP 300, drag fitted from your 11 April ride. Fonts approximate Garmin’s.</p><div class="sheet">
+<figure><div class="f day">
+  <div class="abs lab" style="left:16px;top:6px;letter-spacing:1px">NEXT SEGMENT</div>
+  <div class="abs title" style="top:20px">last climb to longpan rd</div>
+  <div class="abs mid" style="left:16px;top:60px;font-size:24px">start in 450 m</div>
+  <div class="abs small" style="left:16px;top:90px;color:var(--lab)">402 m · 8.1 % · +32 m</div>
+  <div class="abs" style="left:16px;top:110px"><svg width="214" height="40" viewBox="0 0 214 40"><defs><clipPath id="c1398755305938560"><rect width="0.0" height="40"/></clipPath></defs><polygon points="0.0,40.0 3.7,39.8 7.1,39.3 10.5,39.1 14.0,38.9 18.1,38.7 21.9,38.0 25.7,37.6 29.6,37.1 33.8,36.7 38.5,36.2 43.2,35.8 47.9,35.1 52.2,34.4 56.7,33.8 60.8,33.1 64.6,32.2 68.8,31.6 73.3,30.7 77.9,29.8 82.2,29.1 86.1,28.2 90.2,27.1 94.1,26.7 97.8,25.8 101.9,24.9 106.3,24.2 110.6,23.3 114.6,22.4 118.7,21.8 122.9,20.9 127.5,20.0 131.4,19.1 135.4,18.2 139.3,17.6 143.0,16.9 146.5,16.0 149.7,15.3 152.9,14.7 155.9,14.0 159.4,13.1 162.4,12.4 165.3,11.8 168.1,11.1 171.0,10.4 173.8,9.8 176.7,9.3 179.6,8.9 183.2,8.2 186.6,7.8 190.0,7.3 193.4,6.9 196.3,6.7 198.6,6.2 200.6,6.0 202.0,5.8 203.1,5.6 205.2,5.3 206.7,5.1 208.0,4.9 209.5,4.7 210.8,4.4 212.3,4.2 214.0,4.0 214,40 0,40" fill="var(--lt)"/><polygon points="0.0,40.0 3.7,39.8 7.1,39.3 10.5,39.1 14.0,38.9 18.1,38.7 21.9,38.0 25.7,37.6 29.6,37.1 33.8,36.7 38.5,36.2 43.2,35.8 47.9,35.1 52.2,34.4 56.7,33.8 60.8,33.1 64.6,32.2 68.8,31.6 73.3,30.7 77.9,29.8 82.2,29.1 86.1,28.2 90.2,27.1 94.1,26.7 97.8,25.8 101.9,24.9 106.3,24.2 110.6,23.3 114.6,22.4 118.7,21.8 122.9,20.9 127.5,20.0 131.4,19.1 135.4,18.2 139.3,17.6 143.0,16.9 146.5,16.0 149.7,15.3 152.9,14.7 155.9,14.0 159.4,13.1 162.4,12.4 165.3,11.8 168.1,11.1 171.0,10.4 173.8,9.8 176.7,9.3 179.6,8.9 183.2,8.2 186.6,7.8 190.0,7.3 193.4,6.9 196.3,6.7 198.6,6.2 200.6,6.0 202.0,5.8 203.1,5.6 205.2,5.3 206.7,5.1 208.0,4.9 209.5,4.7 210.8,4.4 212.3,4.2 214.0,4.0 214,40 0,40" fill="var(--done)" clip-path="url(#c1398755305938560)"/></svg></div>
+  <div class="abs row" style="top:158px"><span class="badge">PR</span> 1:42 → aim 1:40</div>
+  <div class="abs small" style="left:16px;top:182px">needs <b>414 W</b> · 4.1 W/kg</div>
+  <div class="abs" style="left:16px;top:203px"><span class="verdict">HARD</span><span class="small" style="margin-left:8px">43 % reserve left</span></div>
+  <div class="abs lab" style="left:16px;top:234px">START AT</div>
+  <div class="abs" style="left:16px;top:242px;font-size:46px;font-weight:800;line-height:50px">390<span class="unit">W</span></div>
+  <div class="abs small" style="left:16px;top:302px;color:var(--lab)">KOM 0:36 · out of reach</div>
+</div><figcaption>Before the climb (preview)</figcaption></figure>
+<figure><div class="f day">
+  <div class="abs name">last climb to longpan rd</div>
+  <div class="abs row" style="top:19px"><span class="badge">PR</span> aim 1:40.0</div>
+  <div class="abs lab" style="top:38px;width:100%;text-align:center">HOLD</div>
+  <div class="abs big" style="top:52px">400<span class="unit">W</span></div>
+  <div class="abs banner" style="top:138px">EASY &nbsp;+17 %</div>
+  <div class="abs rule" style="top:178px"></div>
+  <div class="abs gap" style="top:181px;color:var(--ok)">+0.4<span class="unit">s</span></div>
+  <div class="abs lab" style="right:16px;top:185px">FINISH</div>
+  <div class="abs mid" style="right:16px;top:197px">1:39.6</div>
+  <div class="abs rule" style="top:226px"></div>
+  <div class="abs small" style="left:16px;top:230px">next ▲ 8.7 % in 40 m</div>
+  <div class="abs" style="left:16px;top:249px"><svg width="214" height="40" viewBox="0 0 214 40"><defs><clipPath id="c13987553059385632"><rect width="32.0" height="40"/></clipPath></defs><polygon points="0.0,40.0 3.7,39.8 7.1,39.3 10.5,39.1 14.0,38.9 18.1,38.7 21.9,38.0 25.7,37.6 29.6,37.1 33.8,36.7 38.5,36.2 43.2,35.8 47.9,35.1 52.2,34.4 56.7,33.8 60.8,33.1 64.6,32.2 68.8,31.6 73.3,30.7 77.9,29.8 82.2,29.1 86.1,28.2 90.2,27.1 94.1,26.7 97.8,25.8 101.9,24.9 106.3,24.2 110.6,23.3 114.6,22.4 118.7,21.8 122.9,20.9 127.5,20.0 131.4,19.1 135.4,18.2 139.3,17.6 143.0,16.9 146.5,16.0 149.7,15.3 152.9,14.7 155.9,14.0 159.4,13.1 162.4,12.4 165.3,11.8 168.1,11.1 171.0,10.4 173.8,9.8 176.7,9.3 179.6,8.9 183.2,8.2 186.6,7.8 190.0,7.3 193.4,6.9 196.3,6.7 198.6,6.2 200.6,6.0 202.0,5.8 203.1,5.6 205.2,5.3 206.7,5.1 208.0,4.9 209.5,4.7 210.8,4.4 212.3,4.2 214.0,4.0 214,40 0,40" fill="var(--lt)"/><polygon points="0.0,40.0 3.7,39.8 7.1,39.3 10.5,39.1 14.0,38.9 18.1,38.7 21.9,38.0 25.7,37.6 29.6,37.1 33.8,36.7 38.5,36.2 43.2,35.8 47.9,35.1 52.2,34.4 56.7,33.8 60.8,33.1 64.6,32.2 68.8,31.6 73.3,30.7 77.9,29.8 82.2,29.1 86.1,28.2 90.2,27.1 94.1,26.7 97.8,25.8 101.9,24.9 106.3,24.2 110.6,23.3 114.6,22.4 118.7,21.8 122.9,20.9 127.5,20.0 131.4,19.1 135.4,18.2 139.3,17.6 143.0,16.9 146.5,16.0 149.7,15.3 152.9,14.7 155.9,14.0 159.4,13.1 162.4,12.4 165.3,11.8 168.1,11.1 171.0,10.4 173.8,9.8 176.7,9.3 179.6,8.9 183.2,8.2 186.6,7.8 190.0,7.3 193.4,6.9 196.3,6.7 198.6,6.2 200.6,6.0 202.0,5.8 203.1,5.6 205.2,5.3 206.7,5.1 208.0,4.9 209.5,4.7 210.8,4.4 212.3,4.2 214.0,4.0 214,40 0,40" fill="var(--done)" clip-path="url(#c13987553059385632)"/><line x1="32.0" y1="0" x2="32.0" y2="40" stroke="var(--line)" stroke-width="2"/><polygon points="27.0,0 37.0,0 32.0,6" fill="var(--line)"/></svg></div>
+  <div class="abs small" style="left:16px;top:291px">now <b>5.1 %</b></div>
+  <div class="abs small" style="right:16px;top:291px"><b>342 m</b> to go</div>
+  <div class="abs lab" style="left:16px;top:309px">W′</div>
+  <div class="abs" style="left:36px;top:310px;width:194px;height:8px;border:1px solid var(--line);box-sizing:border-box">
+    <div style="width:92%;height:100%;background:var(--res)"></div></div>
+</div><figcaption>Start: going too hard</figcaption></figure>
+<figure><div class="f day">
+  <div class="abs name">last climb to longpan rd</div>
+  <div class="abs row" style="top:19px"><span class="badge">PR</span> aim 1:40.0</div>
+  <div class="abs lab" style="top:38px;width:100%;text-align:center">HOLD</div>
+  <div class="abs big" style="top:52px">435<span class="unit">W</span></div>
+  <div class="abs" style="left:16px;top:140px;width:214px;height:16px;border:1px solid var(--line);box-sizing:border-box"><div class="abs" style="left:85px;width:43px;top:0;bottom:0;background:var(--lt)"></div><div class="abs" style="left:84px;width:23px;top:3px;bottom:3px;background:var(--bad)"></div><div class="abs" style="left:106px;width:2px;top:-4px;bottom:-4px;background:var(--line)"></div></div><div class="abs small" style="left:16px;top:158px">you <b>421</b> W</div><div class="abs small" style="right:16px;top:158px;color:var(--bad)"><b>−3 %</b></div>
+  <div class="abs rule" style="top:178px"></div>
+  <div class="abs gap" style="top:181px;color:var(--bad)">−1.8<span class="unit">s</span></div>
+  <div class="abs lab" style="right:16px;top:185px">FINISH</div>
+  <div class="abs mid" style="right:16px;top:197px">1:41.8</div>
+  <div class="abs rule" style="top:226px"></div>
+  <div class="abs small" style="left:16px;top:230px">next ▲ 10.9 % in 45 m</div>
+  <div class="abs" style="left:16px;top:249px"><svg width="214" height="40" viewBox="0 0 214 40"><defs><clipPath id="c139875530593856122"><rect width="122.5" height="40"/></clipPath></defs><polygon points="0.0,40.0 3.7,39.8 7.1,39.3 10.5,39.1 14.0,38.9 18.1,38.7 21.9,38.0 25.7,37.6 29.6,37.1 33.8,36.7 38.5,36.2 43.2,35.8 47.9,35.1 52.2,34.4 56.7,33.8 60.8,33.1 64.6,32.2 68.8,31.6 73.3,30.7 77.9,29.8 82.2,29.1 86.1,28.2 90.2,27.1 94.1,26.7 97.8,25.8 101.9,24.9 106.3,24.2 110.6,23.3 114.6,22.4 118.7,21.8 122.9,20.9 127.5,20.0 131.4,19.1 135.4,18.2 139.3,17.6 143.0,16.9 146.5,16.0 149.7,15.3 152.9,14.7 155.9,14.0 159.4,13.1 162.4,12.4 165.3,11.8 168.1,11.1 171.0,10.4 173.8,9.8 176.7,9.3 179.6,8.9 183.2,8.2 186.6,7.8 190.0,7.3 193.4,6.9 196.3,6.7 198.6,6.2 200.6,6.0 202.0,5.8 203.1,5.6 205.2,5.3 206.7,5.1 208.0,4.9 209.5,4.7 210.8,4.4 212.3,4.2 214.0,4.0 214,40 0,40" fill="var(--lt)"/><polygon points="0.0,40.0 3.7,39.8 7.1,39.3 10.5,39.1 14.0,38.9 18.1,38.7 21.9,38.0 25.7,37.6 29.6,37.1 33.8,36.7 38.5,36.2 43.2,35.8 47.9,35.1 52.2,34.4 56.7,33.8 60.8,33.1 64.6,32.2 68.8,31.6 73.3,30.7 77.9,29.8 82.2,29.1 86.1,28.2 90.2,27.1 94.1,26.7 97.8,25.8 101.9,24.9 106.3,24.2 110.6,23.3 114.6,22.4 118.7,21.8 122.9,20.9 127.5,20.0 131.4,19.1 135.4,18.2 139.3,17.6 143.0,16.9 146.5,16.0 149.7,15.3 152.9,14.7 155.9,14.0 159.4,13.1 162.4,12.4 165.3,11.8 168.1,11.1 171.0,10.4 173.8,9.8 176.7,9.3 179.6,8.9 183.2,8.2 186.6,7.8 190.0,7.3 193.4,6.9 196.3,6.7 198.6,6.2 200.6,6.0 202.0,5.8 203.1,5.6 205.2,5.3 206.7,5.1 208.0,4.9 209.5,4.7 210.8,4.4 212.3,4.2 214.0,4.0 214,40 0,40" fill="var(--done)" clip-path="url(#c139875530593856122)"/><line x1="122.5" y1="0" x2="122.5" y2="40" stroke="var(--line)" stroke-width="2"/><polygon points="117.5,0 127.5,0 122.5,6" fill="var(--line)"/></svg></div>
+  <div class="abs small" style="left:16px;top:291px">now <b>9.7 %</b></div>
+  <div class="abs small" style="right:16px;top:291px"><b>172 m</b> to go</div>
+  <div class="abs lab" style="left:16px;top:309px">W′</div>
+  <div class="abs" style="left:36px;top:310px;width:194px;height:8px;border:1px solid var(--line);box-sizing:border-box">
+    <div style="width:70%;height:100%;background:var(--res)"></div></div>
+</div><figcaption>Pacing (day)</figcaption></figure>
+<figure><div class="f night">
+  <div class="abs name">last climb to longpan rd</div>
+  <div class="abs row" style="top:19px"><span class="badge">PR</span> aim 1:40.0</div>
+  <div class="abs lab" style="top:38px;width:100%;text-align:center">HOLD</div>
+  <div class="abs big" style="top:52px">435<span class="unit">W</span></div>
+  <div class="abs" style="left:16px;top:140px;width:214px;height:16px;border:1px solid var(--line);box-sizing:border-box"><div class="abs" style="left:85px;width:43px;top:0;bottom:0;background:var(--lt)"></div><div class="abs" style="left:84px;width:23px;top:3px;bottom:3px;background:var(--bad)"></div><div class="abs" style="left:106px;width:2px;top:-4px;bottom:-4px;background:var(--line)"></div></div><div class="abs small" style="left:16px;top:158px">you <b>421</b> W</div><div class="abs small" style="right:16px;top:158px;color:var(--bad)"><b>−3 %</b></div>
+  <div class="abs rule" style="top:178px"></div>
+  <div class="abs gap" style="top:181px;color:var(--bad)">−1.8<span class="unit">s</span></div>
+  <div class="abs lab" style="right:16px;top:185px">FINISH</div>
+  <div class="abs mid" style="right:16px;top:197px">1:41.8</div>
+  <div class="abs rule" style="top:226px"></div>
+  <div class="abs small" style="left:16px;top:230px">next ▲ 10.9 % in 45 m</div>
+  <div class="abs" style="left:16px;top:249px"><svg width="214" height="40" viewBox="0 0 214 40"><defs><clipPath id="c139875530593856122"><rect width="122.5" height="40"/></clipPath></defs><polygon points="0.0,40.0 3.7,39.8 7.1,39.3 10.5,39.1 14.0,38.9 18.1,38.7 21.9,38.0 25.7,37.6 29.6,37.1 33.8,36.7 38.5,36.2 43.2,35.8 47.9,35.1 52.2,34.4 56.7,33.8 60.8,33.1 64.6,32.2 68.8,31.6 73.3,30.7 77.9,29.8 82.2,29.1 86.1,28.2 90.2,27.1 94.1,26.7 97.8,25.8 101.9,24.9 106.3,24.2 110.6,23.3 114.6,22.4 118.7,21.8 122.9,20.9 127.5,20.0 131.4,19.1 135.4,18.2 139.3,17.6 143.0,16.9 146.5,16.0 149.7,15.3 152.9,14.7 155.9,14.0 159.4,13.1 162.4,12.4 165.3,11.8 168.1,11.1 171.0,10.4 173.8,9.8 176.7,9.3 179.6,8.9 183.2,8.2 186.6,7.8 190.0,7.3 193.4,6.9 196.3,6.7 198.6,6.2 200.6,6.0 202.0,5.8 203.1,5.6 205.2,5.3 206.7,5.1 208.0,4.9 209.5,4.7 210.8,4.4 212.3,4.2 214.0,4.0 214,40 0,40" fill="var(--lt)"/><polygon points="0.0,40.0 3.7,39.8 7.1,39.3 10.5,39.1 14.0,38.9 18.1,38.7 21.9,38.0 25.7,37.6 29.6,37.1 33.8,36.7 38.5,36.2 43.2,35.8 47.9,35.1 52.2,34.4 56.7,33.8 60.8,33.1 64.6,32.2 68.8,31.6 73.3,30.7 77.9,29.8 82.2,29.1 86.1,28.2 90.2,27.1 94.1,26.7 97.8,25.8 101.9,24.9 106.3,24.2 110.6,23.3 114.6,22.4 118.7,21.8 122.9,20.9 127.5,20.0 131.4,19.1 135.4,18.2 139.3,17.6 143.0,16.9 146.5,16.0 149.7,15.3 152.9,14.7 155.9,14.0 159.4,13.1 162.4,12.4 165.3,11.8 168.1,11.1 171.0,10.4 173.8,9.8 176.7,9.3 179.6,8.9 183.2,8.2 186.6,7.8 190.0,7.3 193.4,6.9 196.3,6.7 198.6,6.2 200.6,6.0 202.0,5.8 203.1,5.6 205.2,5.3 206.7,5.1 208.0,4.9 209.5,4.7 210.8,4.4 212.3,4.2 214.0,4.0 214,40 0,40" fill="var(--done)" clip-path="url(#c139875530593856122)"/><line x1="122.5" y1="0" x2="122.5" y2="40" stroke="var(--line)" stroke-width="2"/><polygon points="117.5,0 127.5,0 122.5,6" fill="var(--line)"/></svg></div>
+  <div class="abs small" style="left:16px;top:291px">now <b>9.7 %</b></div>
+  <div class="abs small" style="right:16px;top:291px"><b>172 m</b> to go</div>
+  <div class="abs lab" style="left:16px;top:309px">W′</div>
+  <div class="abs" style="left:36px;top:310px;width:194px;height:8px;border:1px solid var(--line);box-sizing:border-box">
+    <div style="width:70%;height:100%;background:var(--res)"></div></div>
+</div><figcaption>Pacing (night)</figcaption></figure>
+<figure><div class="f day">
+  <div class="abs lab" style="left:16px;top:6px;letter-spacing:1px">FINISHED</div>
+  <div class="abs name" style="top:20px">last climb to longpan rd</div>
+  <div class="abs" style="top:40px;width:100%;text-align:center;font-size:64px;font-weight:800;line-height:70px">1:39.4</div>
+  <div class="abs" style="top:116px;width:100%;text-align:center"><span class="win">NEW PR −2.6 s</span></div>
+  <div class="abs small" style="left:16px;top:160px">avg power</div><div class="abs small" style="right:16px;top:160px"><b>416 W</b> · plan 414</div>
+  <div class="abs small" style="left:16px;top:180px">aim</div><div class="abs small" style="right:16px;top:180px"><b>1:40.0</b> · beat by 0.6 s</div>
+  <div class="abs rule" style="top:204px"></div>
+  <div class="abs lab" style="left:16px;top:210px">WEAKEST PART</div>
+  <div class="abs small" style="left:16px;top:224px"><b>150–275 m</b> · 1.1 s behind plan</div>
+  <div class="abs" style="left:16px;top:250px"><svg width="214" height="40" viewBox="0 0 214 40"><defs><clipPath id="c139875530593856214"><rect width="214.0" height="40"/></clipPath></defs><polygon points="0.0,40.0 3.7,39.8 7.1,39.3 10.5,39.1 14.0,38.9 18.1,38.7 21.9,38.0 25.7,37.6 29.6,37.1 33.8,36.7 38.5,36.2 43.2,35.8 47.9,35.1 52.2,34.4 56.7,33.8 60.8,33.1 64.6,32.2 68.8,31.6 73.3,30.7 77.9,29.8 82.2,29.1 86.1,28.2 90.2,27.1 94.1,26.7 97.8,25.8 101.9,24.9 106.3,24.2 110.6,23.3 114.6,22.4 118.7,21.8 122.9,20.9 127.5,20.0 131.4,19.1 135.4,18.2 139.3,17.6 143.0,16.9 146.5,16.0 149.7,15.3 152.9,14.7 155.9,14.0 159.4,13.1 162.4,12.4 165.3,11.8 168.1,11.1 171.0,10.4 173.8,9.8 176.7,9.3 179.6,8.9 183.2,8.2 186.6,7.8 190.0,7.3 193.4,6.9 196.3,6.7 198.6,6.2 200.6,6.0 202.0,5.8 203.1,5.6 205.2,5.3 206.7,5.1 208.0,4.9 209.5,4.7 210.8,4.4 212.3,4.2 214.0,4.0 214,40 0,40" fill="var(--lt)"/><polygon points="0.0,40.0 3.7,39.8 7.1,39.3 10.5,39.1 14.0,38.9 18.1,38.7 21.9,38.0 25.7,37.6 29.6,37.1 33.8,36.7 38.5,36.2 43.2,35.8 47.9,35.1 52.2,34.4 56.7,33.8 60.8,33.1 64.6,32.2 68.8,31.6 73.3,30.7 77.9,29.8 82.2,29.1 86.1,28.2 90.2,27.1 94.1,26.7 97.8,25.8 101.9,24.9 106.3,24.2 110.6,23.3 114.6,22.4 118.7,21.8 122.9,20.9 127.5,20.0 131.4,19.1 135.4,18.2 139.3,17.6 143.0,16.9 146.5,16.0 149.7,15.3 152.9,14.7 155.9,14.0 159.4,13.1 162.4,12.4 165.3,11.8 168.1,11.1 171.0,10.4 173.8,9.8 176.7,9.3 179.6,8.9 183.2,8.2 186.6,7.8 190.0,7.3 193.4,6.9 196.3,6.7 198.6,6.2 200.6,6.0 202.0,5.8 203.1,5.6 205.2,5.3 206.7,5.1 208.0,4.9 209.5,4.7 210.8,4.4 212.3,4.2 214.0,4.0 214,40 0,40" fill="var(--done)" clip-path="url(#c139875530593856214)"/></svg></div>
+  <div class="abs small" style="left:16px;top:300px;color:var(--lab)">KOM 0:36</div>
+</div><figcaption>After the finish (60 s)</figcaption></figure>
+<figure><div class="f day" style="height:161px">
+  <div class="abs row" style="top:6px"><span class="badge">PR</span> <span style="color:var(--bad)">−1.8 s</span></div>
+  <div class="abs small" style="right:16px;top:9px"><b>172 m</b> to go</div>
+  <div class="abs big" style="top:26px">435<span class="unit">W</span></div>
+  <div class="abs" style="left:16px;top:110px;width:214px;height:16px;border:1px solid var(--line);box-sizing:border-box"><div class="abs" style="left:85px;width:43px;top:0;bottom:0;background:var(--lt)"></div><div class="abs" style="left:84px;width:23px;top:3px;bottom:3px;background:var(--bad)"></div><div class="abs" style="left:106px;width:2px;top:-4px;bottom:-4px;background:var(--line)"></div></div>
+  <div class="abs small" style="left:16px;top:132px">you <b>421</b> W</div>
+  <div class="abs small" style="right:16px;top:132px;color:var(--bad)"><b>−3 %</b></div>
+</div><figcaption>Half screen</figcaption></figure>
+</div></body></html>
