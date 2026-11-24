@@ -12,6 +12,7 @@ Writes data/segments.json, kept out of git: KOM times are other riders' data.
 Each run uses about 1 Strava request per route and per segment (2 for a new segment, 2 more for a new PR on a climb);
 your app's limit is on strava.com/settings/api. If it stops at the limit, run it again 15 minutes later.
 """
+import collections
 import http.server
 import json
 import os
@@ -76,7 +77,10 @@ def sign_in(client_id, client_secret):
         raise SystemExit(f"Strava sign-in failed: {reply.get('error', 'unexpected reply')}")
     tok = post_token({"client_id": client_id, "client_secret": client_secret,
                       "code": reply["code"], "grant_type": "authorization_code"})
-    tok = {k: tok[k] for k in ("access_token", "refresh_token", "expires_at")} | {"athlete_id": tok["athlete"]["id"]}
+    tok = {k: tok[k] for k in ("access_token", "refresh_token", "expires_at")} | {"athlete_id": tok["athlete"]["id"],
+                                                                                "scope": reply.get("scope", "")}
+    if "activity:read_all" not in tok["scope"]:
+        print("Without permission to read your rides there are no ghosts. Run again and keep that box ticked.")
     save_token(tok)
     return tok
 
@@ -85,7 +89,9 @@ def access_token():
     client_id, client_secret = os.environ.get("STRAVA_CLIENT_ID"), os.environ.get("STRAVA_CLIENT_SECRET")
     if not client_id or not client_secret:
         raise SystemExit("Set STRAVA_CLIENT_ID and STRAVA_CLIENT_SECRET first (see the top of strava_sync.py).")
-    tok = json.loads(TOKEN.read_text()) if TOKEN.exists() else sign_in(client_id, client_secret)
+    tok = json.loads(TOKEN.read_text()) if TOKEN.exists() else {}
+    if "activity:read_all" not in tok.get("scope", ""):  # no login yet, or one that can't read rides
+        tok = sign_in(client_id, client_secret)
     if tok["expires_at"] < time.time() + 60:  # Strava logins last 6 hours
         new = post_token({"client_id": client_id, "client_secret": client_secret,
                           "grant_type": "refresh_token", "refresh_token": tok["refresh_token"]})
@@ -107,27 +113,28 @@ def getter(access):
     return get
 
 
-def pr_ghost(get, sid):
-    """Your fastest effort on the segment as {"distance", "time", "watts"} from its start, about 100 points,
-    or None if Strava won't share your efforts (that needs a Strava subscription)."""
+def pr_ghost(get, sid, pr_s):
+    """(ghost, pr_watts, why). ghost: your PR ride on the segment as {"distance", "time"} from its start, about
+    100 points. pr_watts: its measured average power, None if Strava estimated it. why: the reason there is no ghost."""
     try:
         efforts = get("/segment_efforts", segment_id=sid, per_page=200)
-        if not efforts:
-            return None
-        e = min(efforts, key=lambda e: e["elapsed_time"])
-        s = get(f"/activities/{e['activity']['id']}/streams", keys="time,distance,watts", key_by_type="true")
-    except urllib.error.HTTPError:  # no subscription, no activity permission, or the ride was deleted
-        return None
+    except urllib.error.HTTPError:
+        return None, None, "Strava won't list your efforts (needs a Strava subscription)"
+    e = next((e for e in efforts if e["elapsed_time"] == pr_s), None)  # the PR itself, not just the fastest listed
+    if not e:
+        return None, None, "your PR ride isn't among your listed efforts"
+    try:
+        s = get(f"/activities/{e['activity']['id']}/streams", keys="time,distance", key_by_type="true")
+    except urllib.error.HTTPError:
+        return None, None, "Strava won't share the PR ride (permission, or the ride is private or deleted)"
     i0, i1 = e["start_index"], e["end_index"]
     t, d = s["time"]["data"][i0:i1 + 1], s["distance"]["data"][i0:i1 + 1]
+    if len(t) < 2:
+        return None, None, "the PR ride has no data on this segment"
     step = max(1, len(t) // 100)  # the Edge holds every climb's ghost in memory
     idx = list(range(0, len(t) - 1, step)) + [len(t) - 1]
-    ghost = {"distance": [d[i] - d[0] for i in idx], "time": [t[i] - t[0] for i in idx], "watts": None}
-    if "watts" in s:
-        w = s["watts"]["data"][i0:i1 + 1]
-        # average power over each kept interval keeps the effort's energy, which calibration relies on
-        ghost["watts"] = [w[0]] + [sum(w[a + 1:b + 1]) / (b - a) for a, b in zip(idx, idx[1:])]
-    return ghost
+    ghost = {"distance": [d[i] - d[0] for i in idx], "time": [t[i] - t[0] for i in idx]}
+    return ghost, e.get("average_watts") if e.get("device_watts") else None, None
 
 
 def collect(get, athlete_id, known, found):
@@ -152,15 +159,18 @@ def collect(get, athlete_id, known, found):
                         streams = get(f"/segments/{sid}/streams", keys="distance,altitude,latlng", key_by_type="true")
                         profile = {k: streams[k]["data"] for k in ("distance", "altitude", "latlng") if k in streams}
                     pr_s = mine.get("pr_elapsed_time")
-                    ghost = old.get("ghost") if old.get("pr_s") == pr_s else None  # a new PR needs a new ghost
+                    ghost, pr_watts, why = None, None, None
+                    if old.get("pr_s") == pr_s:  # a new PR needs a new ghost
+                        ghost, pr_watts, why = old.get("ghost"), old.get("pr_watts"), old.get("ghost_missing")
                     if not ghost and pr_s and seg["average_grade"] >= MIN_GRADE:
-                        ghost = pr_ghost(get, sid)
+                        ghost, pr_watts, why = pr_ghost(get, sid, pr_s)
                     found[sid] = {
                         "id": sid, "name": seg["name"], "distance_m": seg["distance"], "avg_grade": seg["average_grade"],
                         "kom_s": parse_time(xoms["kom"]) if xoms.get("kom") else None,
                         "qom_s": parse_time(xoms["qom"]) if xoms.get("qom") else None,
                         "pr_s": pr_s, "pr_date": mine.get("pr_date"),
-                        "routes": [], "profile": profile, "ghost": ghost, "fetched": time.time()}
+                        "routes": [], "profile": profile, "ghost": ghost, "pr_watts": pr_watts, "ghost_missing": why,
+                        "fetched": time.time()}
                 if detail["name"] not in found[sid]["routes"]:
                     found[sid]["routes"].append(detail["name"])
         page += 1
@@ -188,6 +198,8 @@ def main():
     print(f"{len(segments)} segments saved to {OUT}")
     ridden = [s for s in segments.values() if s.get("pr_s") and s.get("avg_grade", 0) >= MIN_GRADE]
     print(f"Ghosts for {sum(1 for s in ridden if s.get('ghost'))} of the {len(ridden)} climbs you've ridden.")
+    for why, n in collections.Counter(s.get("ghost_missing") for s in ridden if not s.get("ghost")).items():
+        print(f"  {n} without a ghost: {why or 'not fetched yet, run again'}")
     if not complete:
         print("Stopped at your Strava app's rate limit (see strava.com/settings/api). Run it again in 15 minutes to finish.")
 

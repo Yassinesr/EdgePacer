@@ -6,10 +6,13 @@ from pacer import parse_time
 from strava_sync import RateLimited, sync
 
 PROFILE = {"distance": [0, 300], "altitude": [10, 30], "latlng": [[32.0, 118.8], [32.0, 118.9]]}
-GHOST = {"distance": [0, 280, 559], "time": [0, 60, 120], "watts": [250, 300, 320]}
+GHOST = {"distance": [0, 280, 559], "time": [0, 60, 120]}
+EFFORTS = [{"elapsed_time": 125, "activity": {"id": 99}, "start_index": 1, "end_index": 4},
+           {"elapsed_time": 120, "activity": {"id": 98}, "start_index": 1, "end_index": 3,
+            "average_watts": 310.0, "device_watts": True}]
 
 
-def fake_strava(limit_after=None, not_found=None):
+def fake_strava(limit_after=None, not_found=None, efforts=EFFORTS):
     """Two saved routes sharing segment 7; segment 8 has a 45 s KOM. Records every call."""
     calls = []
     data = {
@@ -21,10 +24,8 @@ def fake_strava(limit_after=None, not_found=None):
         "/segments/8": {"name": "Kicker", "distance": 300, "average_grade": 6.0, "xoms": {"kom": "45s"}},
         "/segments/7/streams": {k: {"data": v} for k, v in PROFILE.items()},
         "/segments/8/streams": {k: {"data": v} for k, v in PROFILE.items()},
-        "/segment_efforts": [{"elapsed_time": 125, "activity": {"id": 99}, "start_index": 1, "end_index": 4},
-                             {"elapsed_time": 120, "activity": {"id": 98}, "start_index": 1, "end_index": 3}],
-        "/activities/98/streams": {"time": {"data": [0, 10, 70, 130, 140]}, "distance": {"data": [0, 20, 300, 579, 600]},
-                                   "watts": {"data": [0, 250, 300, 320, 0]}},
+        "/segment_efforts": efforts,
+        "/activities/98/streams": {"time": {"data": [0, 10, 70, 130, 140]}, "distance": {"data": [0, 20, 300, 579, 600]}},
     }
 
     def get(path, **params):
@@ -50,11 +51,23 @@ class SyncTest(unittest.TestCase):
         self.assertEqual(calls.count("/segments/7"), 1)  # shared segment fetched once
         self.assertEqual(segments["7"]["ghost"], GHOST)  # the 120 s effort, cut to the segment
         self.assertIsNone(segments["8"]["ghost"])  # never ridden
+        self.assertEqual(segments["7"]["pr_watts"], 310.0)
+
+    def test_ghost_is_the_pr_ride_itself_or_none_with_a_reason(self):
+        get, _ = fake_strava(efforts=EFFORTS[:1])  # the PR is beyond the listed efforts, only a slower one is there
+        segments, _ = sync(get, 1, known={})
+        self.assertIsNone(segments["7"]["ghost"])
+        self.assertIn("isn't among", segments["7"]["ghost_missing"])
+
+    def test_estimated_power_is_not_kept(self):
+        get, _ = fake_strava(efforts=[EFFORTS[0], {**EFFORTS[1], "device_watts": False}])
+        self.assertIsNone(sync(get, 1, known={})[0]["7"]["pr_watts"])
 
     def test_ghost_is_kept_until_the_pr_changes(self):
         get, calls = fake_strava()
-        sync(get, 1, known={"7": {"profile": PROFILE, "pr_s": 120, "ghost": GHOST}})
+        segments, _ = sync(get, 1, known={"7": {"profile": PROFILE, "pr_s": 120, "ghost": GHOST, "pr_watts": 310.0}})
         self.assertNotIn("/segment_efforts", calls)
+        self.assertEqual(segments["7"]["pr_watts"], 310.0)
         get, calls = fake_strava()
         sync(get, 1, known={"7": {"profile": PROFILE, "pr_s": 130, "ghost": GHOST}})  # beaten since
         self.assertIn("/segment_efforts", calls)
@@ -78,6 +91,7 @@ class SyncTest(unittest.TestCase):
         segments, complete = sync(get, 1, known={})
         self.assertTrue(complete)
         self.assertIsNone(segments["7"]["ghost"])
+        self.assertIn("won't share", segments["7"]["ghost_missing"])
         self.assertEqual(segments["7"]["pr_s"], 120)
 
     def test_rate_limit_keeps_last_runs_records(self):

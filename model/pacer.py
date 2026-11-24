@@ -1,10 +1,10 @@
 """EdgePacer pacing model: on a Strava climb, the gap to your PR and the watts to beat it.
 
 Reference for the Edge data field; the logic is explained in docs/PLAN.md.
-Zero input: FTP and weight come from the rider's Garmin profile. Everything else is a default
-that the rider's own PR effort on the climb corrects (calibrate()).
+Zero input: FTP and weight come from the rider's Garmin profile, everything else is a fixed default.
+The gap is measured against the rider's own PR ride when there is one, so it needs no physics at all.
 Physics per section at steady speed, in still air (no wind):
-    P_meter * eff * k = v * (m*g*(sin a + crr*cos a) + 0.5*rho*cda*v^2)
+    P_meter * eff = v * (m*g*(sin a + crr*cos a) + 0.5*rho*cda*v^2)
 
 Usage:
     python3 pacer.py --segments data/segments.json --segment "last climb" --weight 100 --ftp 300
@@ -14,7 +14,6 @@ import bisect
 import csv
 import json
 import math
-import statistics
 from dataclasses import dataclass, replace
 
 G = 9.81
@@ -25,25 +24,27 @@ ANAEROBIC_S = 70.0   # W' expressed in seconds of FTP: about 20 kJ at FTP 300, a
 
 @dataclass
 class Rider:
-    """What the Edge reads from the Garmin profile (weight, FTP), plus fixed defaults calibrate() corrects."""
+    """What the Edge reads from the Garmin profile (weight, FTP), plus fixed defaults for everything else."""
     rider_kg: float
     ftp: float
     bike_kg: float = 9.0      # bike + kit
     crr: float = 0.005        # average road
     eff: float = 0.975        # drivetrain
-    k: float = 1.0            # calibration factor from the rider's past efforts
     temp_c: float = 15.0
     cda: float = 0.0          # 0: estimated from weight
 
     def __post_init__(self):
+        if not (30 <= self.rider_kg <= 200 and 50 <= self.ftp <= 700):
+            # the Edge blanks the field rather than pace off a default, stale or unconverted (grams) profile
+            raise ValueError(f"Garmin profile looks wrong: {self.rider_kg} kg, FTP {self.ftp} W")
         if not self.cda:
             # frontal area grows with body mass^0.425 (Heil 2001); 0.32 m^2 is a 72 kg rider on the hoods
             self.cda = 0.32 * (self.rider_kg / 72) ** 0.425
 
     def max_power(self, seconds):
-        """Even power the rider can hold for this long, from FTP alone (critical-power curve)."""
+        """Even power the rider can hold for this long, from FTP alone: a critical-power curve that reaches FTP at one hour."""
         # shortcut: the curve overshoots below a minute, so durations are floored at 60 s; fit it to ride history later
-        return self.ftp * (1 + ANAEROBIC_S / max(60.0, seconds))
+        return self.ftp * (1 + ANAEROBIC_S * max(0.0, 1 / max(60.0, seconds) - 1 / 3600))
 
 
 @dataclass
@@ -104,9 +105,8 @@ def air_density(alt_m, temp_c):
 def coeffs(s, r):
     """(a, b) with meter power = a*v + b*v^3 on section s; b*v^3 is the part lost to air drag."""
     ang = math.atan(s.grade)
-    scale = r.eff * r.k
     a = (r.rider_kg + r.bike_kg) * G * (math.sin(ang) + r.crr * math.cos(ang))
-    return a / scale, 0.5 * air_density(s.alt, r.temp_c) * r.cda / scale
+    return a / r.eff, 0.5 * air_density(s.alt, r.temp_c) * r.cda / r.eff
 
 
 def speed_for(p, a, b):
@@ -160,41 +160,47 @@ def beat(record_s, margin=0.01, min_s=2.0):
 
 
 class Pacer:
-    """Live pacing on one segment at even power.
-    target_s: the time to beat. ghost: your PR effort as {"distance": [...], "time": [...]} from the segment start;
-    the gap is measured against it when given, else against this plan.
-    The watts never exceed what the rider's FTP allows, so an out-of-reach target shows the best they can do."""
+    """Live pacing on one segment at even power, toward one target.
+    The reference curve says where the rider must be at each metre to finish exactly at target_s: the PR ride (ghost,
+    {"distance": [...], "time": [...]} from the segment start) when given, else this plan, either one scaled to
+    end at target_s. Every gap reads from it. The watts never exceed what the rider's FTP allows.
+    next: the target to fall back to, for good, once this one is out of reach."""
 
-    def __init__(self, sections, rider, target_s, ghost=None):
-        self.sections, self.rider, self.target_s = sections, rider, target_s
+    def __init__(self, sections, rider, target_s, ghost=None, name="Target", next=None):
+        self.rider, self.target_s, self.name, self.next, self.dropped = rider, target_s, name, next, False
         self.lengths = [s.length for s in sections]
         self.ab = [coeffs(s, rider) for s in sections]
         self.power = self._watts(self.lengths, self.ab, target_s)
-        self.ghost = None
         if ghost:
             d, t = clean(ghost["distance"], ghost["time"])
-            scale = sum(self.lengths) / d[-1]  # the recording measures the segment a little longer or shorter
-            self.ghost = ([x * scale for x in d], t)
+        else:
+            d, t = [0.0], [0.0]
+            for length, (a, b) in zip(self.lengths, self.ab):
+                d.append(d[-1] + length)
+                t.append(t[-1] + length / speed_for(self.power, a, b))
+        scale_d, scale_t = sum(self.lengths) / d[-1], target_s / t[-1]  # the recording measures the climb a little differently
+        self.curve = ([x * scale_d for x in d], [x * scale_t for x in t])
+        self.ghost = bool(ghost)
+
+    def _need_and_cap(self, lengths, ab, time_left):
+        cap, _ = fastest(lengths, ab, self.rider)
+        return solve(lengths, ab, time_left), cap
 
     def _watts(self, lengths, ab, time_left):
-        need = solve(lengths, ab, time_left)
-        cap, _ = fastest(lengths, ab, self.rider)
+        need, cap = self._need_and_cap(lengths, ab, time_left)
         return cap if need is None else min(need, cap)
 
     def planned_time(self, done_m):
-        """Seconds to reach done_m: on the ghost if there is one, else on this plan."""
-        if self.ghost:
-            return interp(done_m, *self.ghost)
-        t = start = 0.0
-        for length, (a, b) in zip(self.lengths, self.ab):
-            t += min(length, max(0.0, done_m - start)) / speed_for(self.power, a, b)
-            start += length
-        return t
+        """Seconds the reference curve takes to reach done_m."""
+        return interp(done_m, *self.curve)
 
     def now(self, done_m, elapsed_s):
-        """(watts to hold here, gap in s: + ahead, - behind).
-        Ahead: keep the plan's watts to bank the time. Behind: the even power that still finishes on time,
-        capped at what the FTP allows for the time left, so a slow start or a stop never asks for a spike."""
+        """(target name, watts to hold here, gap in s: + ahead of the target pace, - behind).
+        elapsed_s runs from the start line and keeps running through stops, like Strava's elapsed time.
+        Ahead: the plan's watts, to bank the time. Behind: the even power that still finishes on time, capped at
+        what the FTP allows for the time left; once even that can't make it, drop to the next target."""
+        if self.dropped:
+            return self.next.now(done_m, elapsed_s)
         gap = self.planned_time(done_m) - elapsed_s
         lengths, ab, start = [], [], 0.0
         for length, coef in zip(self.lengths, self.ab):
@@ -204,57 +210,29 @@ class Pacer:
                 ab.append(coef)
             start += length
         if gap >= 0 or not lengths:
-            return self.power, gap
-        return self._watts(lengths, ab, self.target_s - elapsed_s), gap
+            return self.name, self.power, gap
+        need, cap = self._need_and_cap(lengths, ab, self.target_s - elapsed_s)
+        if self.next and (need is None or need > cap):
+            self.dropped = True
+            return self.next.now(done_m, elapsed_s)
+        return self.name, cap if need is None else min(need, cap), gap
 
 
-def choose(sections, rider, kom_s=None, pr_s=None, ghost=None):
-    """What to chase, with no input from the rider: the KOM if their FTP can beat it,
-    else their PR if they have one, else the fastest their FTP allows. Returns (name, Pacer)."""
-    _, best = fastest([s.length for s in sections], [coeffs(s, rider) for s in sections], rider)
+def choose(sections, rider, kom_s=None, pr_s=None, ghost=None, pr_watts=None):
+    """What to chase, with no input from the rider: the KOM if their FTP can beat it, then their PR if it can,
+    then the fastest their FTP allows. Returns the first Pacer; the others are its fallbacks.
+    pr_watts: average power measured on the PR ride. If it beats what the Garmin FTP allows for that long,
+    the FTP is out of date and is raised to match (the returned Pacer's rider.ftp shows it)."""
+    if pr_s and pr_watts and pr_watts > rider.max_power(pr_s):
+        rider = replace(rider, ftp=pr_watts * rider.ftp / rider.max_power(pr_s))
+    lengths, ab = [s.length for s in sections], [coeffs(s, rider) for s in sections]
+    _, best = fastest(lengths, ab, rider)
+    pacer = Pacer(sections, rider, best, name="Fastest")
+    if pr_s and best <= beat(pr_s):
+        pacer = Pacer(sections, rider, beat(pr_s), ghost, "PR", pacer)
     if kom_s and best <= beat(kom_s):
-        return "KOM", Pacer(sections, rider, beat(kom_s))
-    if pr_s:
-        return "PR", Pacer(sections, rider, beat(pr_s), ghost)
-    return "Fastest", Pacer(sections, rider, best)
-
-
-def effort_sections(sections, t, d, p):
-    """Per-section (seconds, average watts) of a recorded effort on exactly this segment.
-    t, d, p: time (s), distance from the segment start (m) and power (W) samples."""
-    energy = [0.0]
-    for i in range(1, len(t)):
-        energy.append(energy[-1] + p[i] * (t[i] - t[i - 1]))  # a sample covers the time since the one before
-    td, et = clean(t, energy)
-    dd, dt = clean(d, t)  # time at a distance: the first moment you got there
-    scale = sum(s.length for s in sections) / dd[-1]  # the recording measures the segment a little differently
-    dd = [x * scale for x in dd]
-    out, start = [], 0.0
-    for s in sections:
-        t0, t1 = interp(start, dd, dt), interp(start + s.length, dd, dt)
-        out.append((t1 - t0, (interp(t1, td, et) - interp(t0, td, et)) / (t1 - t0)))
-        start += s.length
-    return out
-
-
-def calibrate(sections, rider, efforts):
-    """Factor k that makes the model ride your recorded efforts in their real time; median over efforts (PLAN 8).
-    efforts: effort_sections() results."""
-    # shortcut: fits k only; also fit CdA once the efforts cover both slow and fast sections.
-    ks = []
-    for effort in efforts:
-        actual = sum(t for t, _ in effort)
-        lo, hi = 0.5, 2.0
-        for _ in range(40):
-            k = (lo + hi) / 2
-            r = replace(rider, k=k)
-            predicted = sum(s.length / speed_for(w, *coeffs(s, r)) for s, (_, w) in zip(sections, effort))
-            if predicted > actual:
-                lo = k
-            else:
-                hi = k
-        ks.append(hi)
-    return statistics.median(ks)
+        pacer = Pacer(sections, rider, beat(kom_s), None, "KOM", pacer)
+    return pacer
 
 
 def parse_time(text):
@@ -310,27 +288,26 @@ def main():
 
     secs = sections_from_profile(dist, alt)
     rider = Rider(a.weight, a.ftp)
-    ghost = seg and seg.get("ghost")
-    if ghost and ghost.get("watts"):
-        rider.k = calibrate(secs, rider, [effort_sections(secs, ghost["time"], ghost["distance"], ghost["watts"])])
-        print(f"Calibrated on your PR ride: k = {rider.k:.3f}")
     kom = parse_time(a.kom) if a.kom else seg and seg["kom_s"]
     pr = parse_time(a.pr) if a.pr else seg and seg["pr_s"]
-    name, pacer = choose(secs, rider, kom, pr, ghost)
-    _, best = fastest(pacer.lengths, pacer.ab, rider)
+    pacer = choose(secs, rider, kom, pr, seg and seg.get("ghost"), seg and seg.get("pr_watts"))
+    if pacer.rider.ftp > rider.ftp:
+        print(f"Your FTP looks out of date: your PR ride implies about {pacer.rider.ftp:.0f} W")
+    _, best = fastest(pacer.lengths, pacer.ab, pacer.rider)
+    chain, p = [], pacer
+    while p:
+        chain.append(p.name)
+        p = p.next
 
     print(f"Fastest your FTP allows: {fmt_time(best)}" + (f" (KOM {fmt_time(kom)})" if kom else ""))
-    print(f"Chasing {name}: aim {fmt_time(pacer.target_s)}, hold {pacer.power:.0f} W ({pacer.power / a.weight:.2f} W/kg)"
-          + (", gap measured against your PR ride" if pacer.ghost else ""))
-    print(f"{'km':>5} {'grade':>6} {'km/h':>6} {'plan':>7}" + (f" {'PR ride':>8}" if pacer.ghost else ""))
-    done = clock = 0.0
+    print(f"Chasing {' -> '.join(chain)}: aim {fmt_time(pacer.target_s)}, hold {pacer.power:.0f} W "
+          f"({pacer.power / a.weight:.2f} W/kg)" + (", measured against your PR ride" if pacer.ghost else ""))
+    print(f"{'km':>5} {'grade':>6} {'km/h':>6} {'be here at':>10}")
+    done = 0.0
     for s, coef in zip(secs, pacer.ab):
+        done += s.length
         v = speed_for(pacer.power, *coef)
-        done, clock = done + s.length, clock + s.length / v
-        row = f"{done / 1000:5.2f} {s.grade * 100:5.1f}% {v * 3.6:6.1f} {fmt_time(clock):>7}"
-        if pacer.ghost:
-            row += f" {fmt_time(interp(done, *pacer.ghost)):>8}"
-        print(row)
+        print(f"{done / 1000:5.2f} {s.grade * 100:5.1f}% {v * 3.6:6.1f} {fmt_time(pacer.planned_time(done)):>10}")
 
 
 if __name__ == "__main__":
