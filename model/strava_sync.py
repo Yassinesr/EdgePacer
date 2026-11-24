@@ -1,4 +1,4 @@
-"""Download the Strava segments on your saved routes: profile, KOM/QOM and your PR.
+"""Download the Strava segments on your saved routes: profile, KOM/QOM, your PR and, on climbs, your PR ride (the ghost).
 
 One-time setup:
   1. Create an API app at https://www.strava.com/settings/api
@@ -9,7 +9,7 @@ Then, whenever you save a new route:
 The first run opens Strava in your browser to sign in. The login is kept in
 ~/.config/edgepacer/strava-token.json, never in the repo.
 Writes data/segments.json, kept out of git: KOM times are other riders' data.
-Each run uses about 1 Strava request per route and per segment (2 for a new segment);
+Each run uses about 1 Strava request per route and per segment (2 for a new segment, 2 more for a new PR on a climb);
 your app's limit is on strava.com/settings/api. If it stops at the limit, run it again 15 minutes later.
 """
 import http.server
@@ -30,6 +30,7 @@ TOKEN = Path.home() / ".config" / "edgepacer" / "strava-token.json"
 OUT = Path(__file__).parent / "data" / "segments.json"
 PORT = 8723
 FRESH = 12 * 3600  # s; KOM and PR times older than this are fetched again
+MIN_GRADE = 2.0    # %, EdgePacer paces climbs this steep or steeper, so only they get a ghost
 
 
 class RateLimited(Exception):
@@ -64,7 +65,8 @@ def sign_in(client_id, client_secret):
 
     url = "https://www.strava.com/oauth/authorize?" + urllib.parse.urlencode({
         "client_id": client_id, "response_type": "code", "redirect_uri": f"http://localhost:{PORT}/",
-        "approval_prompt": "auto", "scope": "read,read_all", "state": state})
+        # read_all: private routes; activity:read_all: your PR rides, for the ghosts
+        "approval_prompt": "auto", "scope": "read,read_all,activity:read_all", "state": state})
     print("Sign in to Strava in your browser:", url)
     webbrowser.open(url)
     with http.server.HTTPServer(("localhost", PORT), Handler) as server:
@@ -105,6 +107,29 @@ def getter(access):
     return get
 
 
+def pr_ghost(get, sid):
+    """Your fastest effort on the segment as {"distance", "time", "watts"} from its start, about 100 points,
+    or None if Strava won't share your efforts (that needs a Strava subscription)."""
+    try:
+        efforts = get("/segment_efforts", segment_id=sid, per_page=200)
+        if not efforts:
+            return None
+        e = min(efforts, key=lambda e: e["elapsed_time"])
+        s = get(f"/activities/{e['activity']['id']}/streams", keys="time,distance,watts", key_by_type="true")
+    except urllib.error.HTTPError:  # no subscription, no activity permission, or the ride was deleted
+        return None
+    i0, i1 = e["start_index"], e["end_index"]
+    t, d = s["time"]["data"][i0:i1 + 1], s["distance"]["data"][i0:i1 + 1]
+    step = max(1, len(t) // 100)  # the Edge holds every climb's ghost in memory
+    idx = list(range(0, len(t) - 1, step)) + [len(t) - 1]
+    ghost = {"distance": [d[i] - d[0] for i in idx], "time": [t[i] - t[0] for i in idx], "watts": None}
+    if "watts" in s:
+        w = s["watts"]["data"][i0:i1 + 1]
+        # average power over each kept interval keeps the effort's energy, which calibration relies on
+        ghost["watts"] = [w[0]] + [sum(w[a + 1:b + 1]) / (b - a) for a, b in zip(idx, idx[1:])]
+    return ghost
+
+
 def collect(get, athlete_id, known, found):
     """Fill found with {segment id: record} for every segment on your saved routes.
     known: records from the last run. Their profiles are reused, since a segment's shape doesn't change,
@@ -126,12 +151,16 @@ def collect(get, athlete_id, known, found):
                     if not profile:
                         streams = get(f"/segments/{sid}/streams", keys="distance,altitude,latlng", key_by_type="true")
                         profile = {k: streams[k]["data"] for k in ("distance", "altitude", "latlng") if k in streams}
+                    pr_s = mine.get("pr_elapsed_time")
+                    ghost = old.get("ghost") if old.get("pr_s") == pr_s else None  # a new PR needs a new ghost
+                    if not ghost and pr_s and seg["average_grade"] >= MIN_GRADE:
+                        ghost = pr_ghost(get, sid)
                     found[sid] = {
                         "id": sid, "name": seg["name"], "distance_m": seg["distance"], "avg_grade": seg["average_grade"],
                         "kom_s": parse_time(xoms["kom"]) if xoms.get("kom") else None,
                         "qom_s": parse_time(xoms["qom"]) if xoms.get("qom") else None,
-                        "pr_s": mine.get("pr_elapsed_time"), "pr_date": mine.get("pr_date"),
-                        "routes": [], "profile": profile, "fetched": time.time()}
+                        "pr_s": pr_s, "pr_date": mine.get("pr_date"),
+                        "routes": [], "profile": profile, "ghost": ghost, "fetched": time.time()}
                 if detail["name"] not in found[sid]["routes"]:
                     found[sid]["routes"].append(detail["name"])
         page += 1
@@ -157,6 +186,8 @@ def main():
                               ensure_ascii=False, indent=1))
     os.replace(tmp, OUT)
     print(f"{len(segments)} segments saved to {OUT}")
+    ridden = [s for s in segments.values() if s.get("pr_s") and s.get("avg_grade", 0) >= MIN_GRADE]
+    print(f"Ghosts for {sum(1 for s in ridden if s.get('ghost'))} of the {len(ridden)} climbs you've ridden.")
     if not complete:
         print("Stopped at your Strava app's rate limit (see strava.com/settings/api). Run it again in 15 minutes to finish.")
 

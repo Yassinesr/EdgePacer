@@ -1,13 +1,15 @@
 import time
 import unittest
+import urllib.error
 
 from pacer import parse_time
 from strava_sync import RateLimited, sync
 
 PROFILE = {"distance": [0, 300], "altitude": [10, 30], "latlng": [[32.0, 118.8], [32.0, 118.9]]}
+GHOST = {"distance": [0, 280, 559], "time": [0, 60, 120], "watts": [250, 300, 320]}
 
 
-def fake_strava(limit_after=None):
+def fake_strava(limit_after=None, not_found=None):
     """Two saved routes sharing segment 7; segment 8 has a 45 s KOM. Records every call."""
     calls = []
     data = {
@@ -19,12 +21,18 @@ def fake_strava(limit_after=None):
         "/segments/8": {"name": "Kicker", "distance": 300, "average_grade": 6.0, "xoms": {"kom": "45s"}},
         "/segments/7/streams": {k: {"data": v} for k, v in PROFILE.items()},
         "/segments/8/streams": {k: {"data": v} for k, v in PROFILE.items()},
+        "/segment_efforts": [{"elapsed_time": 125, "activity": {"id": 99}, "start_index": 1, "end_index": 4},
+                             {"elapsed_time": 120, "activity": {"id": 98}, "start_index": 1, "end_index": 3}],
+        "/activities/98/streams": {"time": {"data": [0, 10, 70, 130, 140]}, "distance": {"data": [0, 20, 300, 579, 600]},
+                                   "watts": {"data": [0, 250, 300, 320, 0]}},
     }
 
     def get(path, **params):
         calls.append(path)
         if limit_after is not None and len(calls) > limit_after:
             raise RateLimited
+        if path == not_found:
+            raise urllib.error.HTTPError(path, 404, "Not Found", None, None)
         reply = data[path]
         return reply[params["page"]] if "page" in params else reply
     return get, calls
@@ -40,6 +48,16 @@ class SyncTest(unittest.TestCase):
         self.assertEqual((segments["8"]["kom_s"], segments["8"]["pr_s"]), (45, None))
         self.assertEqual(segments["8"]["profile"], PROFILE)
         self.assertEqual(calls.count("/segments/7"), 1)  # shared segment fetched once
+        self.assertEqual(segments["7"]["ghost"], GHOST)  # the 120 s effort, cut to the segment
+        self.assertIsNone(segments["8"]["ghost"])  # never ridden
+
+    def test_ghost_is_kept_until_the_pr_changes(self):
+        get, calls = fake_strava()
+        sync(get, 1, known={"7": {"profile": PROFILE, "pr_s": 120, "ghost": GHOST}})
+        self.assertNotIn("/segment_efforts", calls)
+        get, calls = fake_strava()
+        sync(get, 1, known={"7": {"profile": PROFILE, "pr_s": 130, "ghost": GHOST}})  # beaten since
+        self.assertIn("/segment_efforts", calls)
 
     def test_known_profiles_are_not_downloaded_again(self):
         get, calls = fake_strava()
@@ -55,8 +73,15 @@ class SyncTest(unittest.TestCase):
         self.assertIn("/segments/8", calls)  # stale: KOM and PR fetched again
         self.assertEqual(segments["7"]["routes"], ["Purple Mt loop", "Wall repeats"])
 
+    def test_unreadable_pr_ride_skips_the_ghost_not_the_sync(self):
+        get, _ = fake_strava(not_found="/activities/98/streams")  # e.g. no activity permission
+        segments, complete = sync(get, 1, known={})
+        self.assertTrue(complete)
+        self.assertIsNone(segments["7"]["ghost"])
+        self.assertEqual(segments["7"]["pr_s"], 120)
+
     def test_rate_limit_keeps_last_runs_records(self):
-        get, _ = fake_strava(limit_after=4)  # dies before segment 8
+        get, _ = fake_strava(limit_after=6)  # dies before segment 8
         old = {"8": {"name": "Kicker (last run)"}}
         segments, complete = sync(get, 1, known=old)
         self.assertFalse(complete)
