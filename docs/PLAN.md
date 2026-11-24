@@ -246,13 +246,13 @@ Use the secant method outside and Newton's method inside, starting from last sec
 
 ---
 
-## 12. Decisions for you (recommended first)
+## 12. Decisions (made: the recommended defaults)
 
-1. **When ahead:** hold the plan to bank time, *or* ease off to the minimum needed.
-2. **Margin:** 1 % (at least 2 s), *or* a fixed number of seconds.
-3. **Overlapping segments:** first started, *or* longest.
-4. **Pacing shape:** lowest effort, *or* even power, as the default.
-5. **"Can you do it?":** on, using FTP/CP and W′ settings, *or* off.
+1. **When ahead:** hold the plan to bank time. "Ease off" stays an option.
+2. **Margin:** 1 %, at least 2 s.
+3. **Overlapping segments:** the first one started.
+4. **Pacing shape:** lowest effort by default. Even power is an option.
+5. **"Can you do it?":** on, using CP (about your FTP) and W′ settings.
 
 ## 13. Not verified yet
 
