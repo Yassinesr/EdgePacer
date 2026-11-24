@@ -256,11 +256,9 @@ Use the secant method outside and Newton's method inside, starting from last sec
 
 ## 13. Not verified yet
 
-- **Strava API:**
-  - Route details list the segments on the route (`segments`).
-  - Segment streams (distance, altitude, lat/lon).
-  - KOM / QOM / PR times in segment details.
-  - Your efforts on a segment. Some endpoints need a Strava subscription.
+- **Strava API:** checked on 2026-11-24 with a real sync of 47 segments. Route details list their segments,
+  every segment came with KOM, QOM and a profile, and your PR is there when you've ridden it.
+  Still open: reading your efforts on a segment for calibration (some endpoints need a Strava subscription).
 - **Connect IQ:**
   - Data field memory limit on the 540 and newer.
   - Whether FTP, bike weight, barometric pressure and temperature can be read.
