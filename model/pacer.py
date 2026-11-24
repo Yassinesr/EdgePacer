@@ -23,6 +23,7 @@ ANAEROBIC_S = 70.0   # W' expressed in seconds of FTP: about 20 kJ at FTP 300, a
 MAX_FTP = 1.5        # never ask for more than 1.5 x FTP, whatever the reserve says
 STEADY_S = 20.0      # s of steady riding on the climb before watts come from the rider's own power
 RESTART_S = 10.0     # s after a stop with no watts shown, so nobody sprints away from a red light
+NEWTON = 8           # Newton steps in speed_for: converged to a mm/s from CAP on any grade
 
 
 @dataclass
@@ -84,6 +85,17 @@ def clean(xs, ys):
     return [x for x, _ in keep], [y for _, y in keep]
 
 
+def every(dist, step):
+    """Indexes of one point every `step` metres along `dist`, plus the last: what the Edge keeps in memory."""
+    idx = [0]
+    for i in range(1, len(dist)):
+        if dist[i] - dist[idx[-1]] >= step:
+            idx.append(i)
+    if idx[-1] != len(dist) - 1:
+        idx.append(len(dist) - 1)
+    return idx
+
+
 def interp(x, xs, ys):
     """Linear interpolation; the end pieces extend past the data."""
     i = min(max(bisect.bisect_right(xs, x), 1), len(xs) - 1)
@@ -129,17 +141,14 @@ def coeffs(s, r):
 
 
 def speed_for(p, a, b):
-    """Steady speed (m/s) for meter power p, capped at CAP. Power rises with speed past any dip, so bisection is safe."""
+    """Steady speed (m/s) for meter power p, capped at CAP. Power is convex in speed, so Newton steps down from CAP land
+    on the one speed below it that costs p; 8 steps where bisection takes 40, which the Edge's time limit needs."""
     if a * CAP + b * CAP ** 3 <= p:
         return CAP
-    lo, hi = 0.0, CAP
-    for _ in range(40):
-        mid = (lo + hi) / 2
-        if a * mid + b * mid ** 3 < p:
-            lo = mid
-        else:
-            hi = mid
-    return hi
+    v = CAP
+    for _ in range(NEWTON):
+        v -= (a * v + b * v ** 3 - p) / (a + 3 * b * v * v)
+    return v
 
 
 def ride_time(p, lengths, ab):

@@ -1,6 +1,7 @@
 # EdgePacer: design and logic
 
-EdgePacer is a Connect IQ data field for Garmin Edge 540 and newer, for riders with a power meter.
+EdgePacer is a Connect IQ data field for the Garmin Edge 540, 840, 1040, 550, 850 and 1050 (the Edges that let an app
+read the FTP), for riders with a power meter.
 On every Strava climb on the rider's saved routes it shows **how far ahead of or behind the target pace they are**,
 and the **watts to hold** to make it. The target is the KOM (or QOM) if they can beat it, else their PR, else the
 fastest pace they can hold.
@@ -13,6 +14,7 @@ What EdgePacer adds over Strava Live Segments, ClimbPro and Power Guide, which t
 to beat the target, and falling back from KOM to PR to the fastest possible. Lead with that.
 
 Reference model: `model/pacer.py` (tests: `model/test_pacer.py`). Strava download: `model/strava_sync.py`.
+Edge app: `edge/` (port of the model, build steps in [edge/README.md](../edge/README.md)).
 
 ---
 
@@ -73,10 +75,10 @@ The rider chooses nothing. EdgePacer tries, in order:
 
 | State | When | Screen (top half of the rider's page) |
 |---|---|---|
-| Idle | not on a climb | a metric the rider picks (3 s power by default); within 1 km of a climb: "next climb in 1.2 km · name · PR 1:56"; sync age; "FTP looks out of date" when it applies |
+| Idle | not on a climb | 3 s power; within 1 km of a climb start: its name and "starts in 600 m", or "FTP looks out of date" when it applies; otherwise the climb count, or the sync age once over 14 days |
 | Active | crossed the start line of a climb ≥ 2 % | target letter (K, P or F); the gap, large, with the word "ahead" or "behind"; watts to hold, small; distance to go and grade |
 | Finished | crossed the finish line | result for 5 s ("NEW PR −2.6 s"), then back to idle |
-| Can't pace | bad profile, no GPS fix | "SET FTP", "SET WEIGHT" or "NO FIX" instead of numbers |
+| Can't pace | bad profile, no climbs built in, no GPS fix | "SET FTP", "SET WEIGHT" or "NO CLIMBS" instead of numbers; "no GPS fix" on the bottom line while pacing |
 
 - **Gap:** time on the reference curve at this distance − elapsed, in **whole seconds**, "on pace" within 1 s,
   until the replay harness says how accurate it really is.
@@ -86,12 +88,13 @@ The rider chooses nothing. EdgePacer tries, in order:
   never above the ceiling (section 3). **No watts while stopped and for 10 s after**, so nobody sprints away from
   a red light.
 - **Target switch:** the letter flashes and the Edge beeps once (`Attention.playTone`).
-- **Start and finish:** within 50 m, heading within 45° of the segment, crossing a line square to it,
-  interpolated between GPS fixes.
-- **Distance along the climb:** GPS projected onto the segment, blended with wheel distance, never going backwards.
-  Its error is unmeasured and matters more than the watts: 1–2 % on 5 km is 10–20 s of false gap.
-- **Abandon:** more than 50 m off the climb for 15 s, or riding the wrong way.
-- **New PR:** the Edge keeps the effort as the new ghost until the next Strava sync.
+- **Start and finish:** crossing a line square to the climb's first 25 m, within 25 m of its first point, in the
+  climb's direction; the finish when the distance along reaches the end. Both interpolated between GPS fixes.
+- **Distance along the climb:** GPS projected onto the climb's path (a point every 25 m), searched only a few points
+  ahead, never going backwards. Its error is unmeasured and matters more than the watts: 1–2 % on 5 km is 10–20 s of
+  false gap. Blending in wheel distance is for later, if the ride files say so.
+- **Abandon:** more than 50 m off the climb for 15 s. No result is shown.
+- **New PR:** later. In v1 the ghost changes only with the next Strava sync and rebuild.
 - **Ride file, from the first build:** the gap, the target letter, the watts target and the model's speed go into
   the FIT file as developer fields (`FitContributor`), so every ride can be replayed and the defaults checked.
 
@@ -113,9 +116,12 @@ Mockups at Edge 540/840 size: [layout/on-your-page.png](layout/on-your-page.png)
 
 - A data field can't switch pages, take input or pop up screens, so it lives in one spot of the rider's own page.
 - Since API 5.0 a foreground data field can make web requests through the phone (`Communications`).
-- The even-power solve is one 1-D search. On the Edge it must use Newton's method for speed per section and run only
-  when needed, at most once a second, to stay inside Connect IQ's time limit.
-- Memory: about 15 climbs with 25 m ghosts and 50–200 m sections. Measure it on the 540.
+- The even-power solve is one 1-D search; speed per section uses 8 Newton steps (the model does too). On the bike it
+  runs once a second (the watts to hold and the ceiling), and three searches at the start line. Whether that stays
+  inside Connect IQ's time limit on a long climb is unmeasured: check with the simulator's profiler.
+- Memory: every built-in climb loads at once. Fine for about 15 climbs; measure on the 540 before adding more.
+- Climbs are built into the app (`model/export_edge.py` → `edge/resources/jsonData/climbs.json`, kept out of git),
+  so new climbs or PRs need a sync and a rebuild until they come through the phone.
 - Permissions: `UserProfile`, `Positioning`, `FitContributor`, and `Communications` once climbs come through the phone.
 
 ## 7. Next steps
@@ -125,9 +131,9 @@ Mockups at Edge 540/840 size: [layout/on-your-page.png](layout/on-your-page.png)
    field shows (KOM/QOM times, a Live Segments-like gap).
 2. **Replay harness (Python)** on your Edge ride files, judged against Strava's elapsed times for the same efforts.
    Start and finish detection first, then the total gap error per effort: that sets the margin.
-3. **Device stub:** read FTP and weight (grams → kg) with the sanity check and status words, the target letter, sync age,
-   the FTP warning, the ride-file fields; measure memory. Ride it with ClimbPro and Strava Live Segments on.
-4. **Edge data field v1:** the logic above, climbs and ghosts built into the app from `segments.json`.
+3. **Edge data field v1 (written, `edge/`):** compiles and type-checks with the Connect IQ 9.3 compiler, not yet run.
+   In the simulator: the layout at each size, memory, the time per second on the longest climb, a ride file played
+   back over a real climb. Then ride it with ClimbPro and Strava Live Segments on.
 
 **Before publishing:** apply for Strava's app review now (one athlete until then); a privacy policy; sign-in on the
 phone or a web page with a small server and cache (the Python sign-in and its secret can't ship, and the rate limit of

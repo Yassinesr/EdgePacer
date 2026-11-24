@@ -1,0 +1,4 @@
+<jsonDataResources xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="https://developer.garmin.com/downloads/connect-iq/resources.xsd">
+    <!-- written by model/export_edge.py; run it before building -->
+    <jsonData id="climbs" filename="climbs.json" />
+</jsonDataResources>

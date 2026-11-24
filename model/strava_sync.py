@@ -24,7 +24,7 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
-from pacer import parse_time
+from pacer import every, parse_time
 
 API = "https://www.strava.com/api/v3"
 TOKEN = Path.home() / ".config" / "edgepacer" / "strava-token.json"
@@ -132,12 +132,7 @@ def pr_ghost(get, sid, pr_s):
     t, d = s["time"]["data"][i0:i1 + 1], s["distance"]["data"][i0:i1 + 1]
     if len(t) < 2:
         return None, None, "the PR ride has no data on this segment"
-    idx = [0]  # one point every GHOST_STEP_M: the Edge holds every climb's ghost in memory
-    for i in range(1, len(d)):
-        if d[i] - d[idx[-1]] >= GHOST_STEP_M:
-            idx.append(i)
-    if idx[-1] != len(d) - 1:
-        idx.append(len(d) - 1)
+    idx = every(d, GHOST_STEP_M)  # the Edge holds every climb's ghost in memory
     ghost = {"distance": [d[i] - d[0] for i in idx], "time": [t[i] - t[0] for i in idx]}
     return ghost, e.get("average_watts") if e.get("device_watts") else None, None
 

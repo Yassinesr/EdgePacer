@@ -1,2 +1,6 @@
 __pycache__/
 model/data/
+edge/resources/jsonData/climbs.json
+edge/bin/
+*.der
+*.pem
