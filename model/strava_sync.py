@@ -29,6 +29,7 @@ API = "https://www.strava.com/api/v3"
 TOKEN = Path.home() / ".config" / "edgepacer" / "strava-token.json"
 OUT = Path(__file__).parent / "data" / "segments.json"
 PORT = 8723
+FRESH = 12 * 3600  # s; KOM and PR times older than this are fetched again
 
 
 class RateLimited(Exception):
@@ -106,18 +107,22 @@ def getter(access):
 
 def collect(get, athlete_id, known, found):
     """Fill found with {segment id: record} for every segment on your saved routes.
-    known: records from the last run; their profiles are reused, since a segment's shape doesn't change."""
+    known: records from the last run. Their profiles are reused, since a segment's shape doesn't change,
+    and records fetched within FRESH seconds are reused whole, so a run cut off by the rate limit can finish."""
     page = 1
     while routes := get(f"/athletes/{athlete_id}/routes", page=page, per_page=100):
         for route in routes:
             detail = get(f"/routes/{route.get('id_str') or route['id']}")
             for s in detail.get("segments") or []:
                 sid = str(s["id"])
-                if sid not in found:
+                old = known.get(sid, {})
+                if sid not in found and time.time() - old.get("fetched", 0) < FRESH:
+                    found[sid] = {**old, "routes": []}
+                elif sid not in found:
                     seg = get(f"/segments/{sid}")
                     xoms = seg.get("xoms") or {}
                     mine = seg.get("athlete_segment_stats") or seg.get("athlete_pr_effort") or {}
-                    profile = known.get(sid, {}).get("profile")
+                    profile = old.get("profile")
                     if not profile:
                         streams = get(f"/segments/{sid}/streams", keys="distance,altitude,latlng", key_by_type="true")
                         profile = {k: streams[k]["data"] for k in ("distance", "altitude", "latlng") if k in streams}
@@ -126,7 +131,7 @@ def collect(get, athlete_id, known, found):
                         "kom_s": parse_time(xoms["kom"]) if xoms.get("kom") else None,
                         "qom_s": parse_time(xoms["qom"]) if xoms.get("qom") else None,
                         "pr_s": mine.get("pr_elapsed_time"), "pr_date": mine.get("pr_date"),
-                        "routes": [], "profile": profile}
+                        "routes": [], "profile": profile, "fetched": time.time()}
                 if detail["name"] not in found[sid]["routes"]:
                     found[sid]["routes"].append(detail["name"])
         page += 1

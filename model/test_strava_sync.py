@@ -1,3 +1,4 @@
+import time
 import unittest
 
 from pacer import parse_time
@@ -45,6 +46,14 @@ class SyncTest(unittest.TestCase):
         sync(get, 1, known={"7": {"profile": PROFILE}})
         self.assertNotIn("/segments/7/streams", calls)
         self.assertIn("/segments/8/streams", calls)
+
+    def test_recently_fetched_segments_are_reused_whole(self):
+        get, calls = fake_strava()
+        fresh = {"id": "7", "name": "Wall", "kom_s": 81, "profile": PROFILE, "fetched": time.time()}
+        segments, _ = sync(get, 1, known={"7": fresh, "8": {"profile": PROFILE, "fetched": 0}})
+        self.assertNotIn("/segments/7", calls)
+        self.assertIn("/segments/8", calls)  # stale: KOM and PR fetched again
+        self.assertEqual(segments["7"]["routes"], ["Purple Mt loop", "Wall repeats"])
 
     def test_rate_limit_keeps_last_runs_records(self):
         get, _ = fake_strava(limit_after=4)  # dies before segment 8
