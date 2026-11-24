@@ -10,7 +10,7 @@ The first run opens Strava in your browser to sign in. The login is kept in
 ~/.config/edgepacer/strava-token.json, never in the repo.
 Writes data/segments.json, kept out of git: KOM times are other riders' data.
 Each run uses about 1 Strava request per route and per segment (2 for a new segment);
-Strava allows 100 every 15 minutes. If it stops at the limit, run it again later.
+your app's limit is on strava.com/settings/api. If it stops at the limit, run it again 15 minutes later.
 """
 import http.server
 import json
@@ -153,7 +153,7 @@ def main():
     os.replace(tmp, OUT)
     print(f"{len(segments)} segments saved to {OUT}")
     if not complete:
-        print("Stopped at Strava's limit of 100 requests per 15 minutes. Run it again later to finish.")
+        print("Stopped at your Strava app's rate limit (see strava.com/settings/api). Run it again in 15 minutes to finish.")
 
 
 if __name__ == "__main__":
