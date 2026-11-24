@@ -10,6 +10,7 @@ Usage:
 import argparse
 import bisect
 import csv
+import json
 import math
 import statistics
 from dataclasses import dataclass, replace
@@ -283,8 +284,9 @@ def calibrate(sections, rider, efforts):
 
 
 def parse_time(text):
+    """'9:30', '1:02:03' or Strava's '45s', in seconds."""
     secs = 0
-    for part in text.split(":"):
+    for part in text.strip().rstrip("s").split(":"):
         secs = secs * 60 + float(part)
     return secs
 
@@ -301,8 +303,10 @@ def read_csv(path, *columns):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("profile", help="CSV with distance_m,altitude_m columns")
-    ap.add_argument("--rider", type=float, required=True, help="rider weight, kg")
+    ap.add_argument("profile", nargs="?", help="CSV with distance_m,altitude_m columns, or use --segments")
+    ap.add_argument("--segments", help="data/segments.json from strava_sync.py; alone it lists the segments")
+    ap.add_argument("--segment", help="with --segments: segment id or part of its name")
+    ap.add_argument("--rider", type=float, help="rider weight, kg")
     ap.add_argument("--bike", type=float, default=9.0, help="bike + kit, kg")
     ap.add_argument("--cda", type=float, default=0.32)
     ap.add_argument("--crr", type=float, default=0.004)
@@ -317,17 +321,40 @@ def main():
                     help="CSV with time_s,distance_m,power_w of a past effort, to calibrate; repeat for more")
     a = ap.parse_args()
 
-    secs = sections_from_profile(*read_csv(a.profile, "distance_m", "altitude_m"))
+    seg = None
+    if a.segments:
+        with open(a.segments, encoding="utf-8") as f:
+            segments = json.load(f)["segments"]
+        hits = [s for s in segments.values() if a.segment and (a.segment == s["id"] or a.segment.lower() in s["name"].lower())]
+        if len(hits) != 1:
+            for s in hits or segments.values():
+                kom = fmt_time(s["kom_s"]) if s["kom_s"] else "-"
+                pr = fmt_time(s["pr_s"]) if s["pr_s"] else "-"
+                print(f"{s['id']:>12}  {s['distance_m']:6.0f} m {s['avg_grade']:5.1f}%  KOM {kom:>7}  PR {pr:>7}  {s['name']}")
+            raise SystemExit(0 if not a.segment else "Pick one with --segment <id>.")
+        seg = hits[0]
+        dist, alt = seg["profile"]["distance"], seg["profile"]["altitude"]
+        print(f"{seg['name']}: {seg['distance_m']:.0f} m at {seg['avg_grade']:.1f}%")
+    elif a.profile:
+        dist, alt = read_csv(a.profile, "distance_m", "altitude_m")
+    else:
+        ap.error("give a profile CSV or --segments")
+    if a.rider is None:
+        ap.error("--rider is required to make a plan")
+
+    secs = sections_from_profile(dist, alt)
     rider = Rider(a.rider, a.bike, a.cda, a.crr, temp_c=a.temp, cp=a.cp, w_prime=a.wprime * 1000)
     if a.effort:
         efforts = [effort_sections(secs, *read_csv(f, "time_s", "distance_m", "power_w")) for f in a.effort]
         rider.k = calibrate(secs, rider, efforts)
         print(f"Calibration factor k = {rider.k:.3f} from {len(efforts)} effort(s)")
 
+    kom = parse_time(a.kom) if a.kom else seg and seg["kom_s"]
+    pr = parse_time(a.pr) if a.pr else seg and seg["pr_s"]
     if a.target:
         records = [("Target", parse_time(a.target))]
     else:
-        records = [(name, parse_time(t)) for name, t in (("KOM", a.kom), ("PR", a.pr)) if t]
+        records = [(name, t) for name, t in (("KOM", kom), ("PR", pr)) if t]
     if not records and not rider.cp:
         raise SystemExit("Give --kom, --pr or --target, or --cp to get your best possible time.")
     for name, record in records:

@@ -236,11 +236,11 @@ Use the secant method outside and Newton's method inside, starting from last sec
    - Tests, then validation on your real efforts.
    - This is the reference the Edge code must match.
 2. **Edge data field v1.**
-   - A script on your computer pulls your starred segments and builds them into the app.
+   - `model/strava_sync.py` on your computer pulls the segments on your saved Strava routes (profile, KOM/QOM, PR), and they are built into the app.
    - State machine, pacing screen, FIT fields.
    - Copy it to the Edge over USB.
 3. **Sync and publish.**
-   - Starred segments fetched through the phone or a small server.
+   - Segments from your saved routes fetched through the phone or a small server.
    - Settings in the Connect IQ app.
    - Strava app review, then a store listing.
 
@@ -257,6 +257,7 @@ Use the secant method outside and Newton's method inside, starting from last sec
 ## 13. Not verified yet
 
 - **Strava API:**
+  - Route details list the segments on the route (`segments`).
   - Segment streams (distance, altitude, lat/lon).
   - KOM / QOM / PR times in segment details.
   - Your efforts on a segment. Some endpoints need a Strava subscription.
