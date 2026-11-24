@@ -125,13 +125,15 @@ Use the secant method outside and Newton's method inside, starting from last sec
 
 ### 6.1 States
 
+EdgePacer paces every segment of 2 % or steeper on your synced routes, automatically (the 2 % is a setting).
+
 | State | When | Screen |
 |---|---|---|
-| Idle | No segment within 1 km ahead | Normal power field |
-| Approaching | < 1 km from a start, heading towards it | Preview: name, length, average grade, target time, average W and W/kg needed, verdict (section 7), "start at 330 W" |
+| Idle | Not on a segment | A metric you choose (3s power by default). Within 1 km of a climb, a line under it: "next climb in 1.2 km · name · PR" |
+| Approaching | < 1 km from a start, heading towards it | Your metric stays, the line under it names the climb and "start at 390 W". On a full page: preview: name, length, average grade, target time, average W and W/kg needed, verdict (section 7), "start at 330 W" |
 | Armed | < 50 m from the start, heading within 45° of the segment's direction, speed > 5 km/h | "Go in 40 m" |
 | Active | Crossed the start line | Pacing screen (6.4) |
-| Finished | Crossed the finish line | Result for 60 s |
+| Finished | Crossed the finish line | Result for 5 s, then back to your metric |
 | Aborted | > 50 m off the segment for > 15 s, riding backwards, or stopped > 5 min | "Abandoned" for 10 s |
 
 ### 6.2 Start, progress, clock
@@ -150,7 +152,8 @@ Use the secant method outside and Newton's method inside, starting from last sec
 
 ### 6.4 Pacing screen (full-screen layout)
 
-Mockups of every screen, at Edge 540/840 size: [layout/mockups.png](layout/mockups.png) (source: `layout/mockups.html`).
+**Main use: one spot on your own page** (top half or a third), so you never switch pages: [layout/on-your-page.png](layout/on-your-page.png).
+Full-page versions of every screen, at Edge 540/840 size: [layout/mockups.png](layout/mockups.png). Sources: the `.html` files next to them.
 
 - **Target watts now**, large, rounded to 5 W. It only changes when the target moves ≥ 5 W or at a section change, so it doesn't flicker.
 - **Your 3 s power,** coloured: green within ±3 % of target, orange above, red below.
@@ -164,7 +167,7 @@ Mockups of every screen, at Edge 540/840 size: [layout/mockups.png](layout/mocku
 
 ### 6.5 Finish
 
-- Show the result for 60 s: your time vs target, average power vs planned, and where you lost or gained the most.
+- Show the result for 5 s, then go back to your metric: your time vs target, average power vs planned, and where you lost or gained the most.
 - Write to the ride file with FitContributor: target watts and gap every second, plus segment and result per lap. You can then compare plan and actual afterwards in Garmin Connect.
 
 ---
@@ -226,7 +229,7 @@ Mockups of every screen, at Edge 540/840 size: [layout/mockups.png](layout/mocku
 
 - **Update time limit:** keep each update small (section 4.3). Replan at most once per second.
 - **Memory:** keep only segments within ~10 km in memory, stored compactly. Check the data field memory limit on the 540 and newer.
-- **No popups, no buttons:** a data field can't open screens or take input. It must be on a data page, and everything else is a setting.
+- **No page switching, no popups, no buttons:** a data field can't change the page or take input. So EdgePacer lives in one spot of the page you already ride with and changes what it shows there ([layout/on-your-page.png](layout/on-your-page.png)). Everything else is a setting.
 - **Devices:** Edge 540, 840, 1040, 1050, plus 550 and 850 if the SDK lists them.
 
 ---
@@ -265,3 +268,4 @@ Mockups of every screen, at Edge 540/840 size: [layout/mockups.png](layout/mocku
   - Data field memory limit on the 540 and newer.
   - Whether FTP, bike weight, barometric pressure and temperature can be read.
   - How Live Segments interacts with a data field on screen.
+  - Whether a data field alert (`DataField.showAlert`) can flash a short notice over the page when a climb starts.
