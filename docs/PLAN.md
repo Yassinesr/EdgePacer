@@ -47,7 +47,7 @@ The rider chooses nothing. EdgePacer tries, in order:
 
 - **Target:** the record minus 1 %, at least 2 s, because Strava's GPS timing differs from the Edge's by 1–3 s.
 - **Out of reach mid-climb:** once even the most the rider can hold for the time left (with the reserve they have
-  left) can't make the target, EdgePacer drops to the next one **for good**. The letter flashes and the Edge beeps once.
+  left) can't make the target **for 10 s** (one GPS jump looks the same), EdgePacer drops to the next one **for good**. The letter flashes and the Edge beeps once.
   Falling back to Fastest plans it **afresh from where the rider is** (the gap starts at 0): Fastest is always the
   hardest target from the start line, so the plan made there would only ask for more.
 - **FTP looks out of date:** if the PR ride's measured power is above what the Garmin FTP allows for that long,
@@ -82,9 +82,9 @@ The rider chooses nothing. EdgePacer tries, in order:
 | State | When | Screen (top half of the rider's page) |
 |---|---|---|
 | Idle | not on a climb | it replaces the power field: "3S POWER", 3 s power large, its zone as a coloured tag and a zone bar with a mark at FTP; the climb count, "no GPS" / "weak GPS", or the sync age once over 14 days |
-| Approach | within 500 m of a climb start that is still ahead | climb name in orange (or "FTP looks out of date"); 3 s power large, the target letter beside it; the metres to the start and a "ride in 300 W" tag (FTP, see entry speed); a bar of 3 s power against it: blue under, green on it, red over. The target is planned here, so nothing heavy runs at the start line |
-| Active | crossed the start line of a climb ≥ 2 % | "PR PACE  2.1 km  6%"; the gap, large, green ahead or red behind, "s ahead" / "s behind"; the target letter; a "hold 307 W" tag in the target's colour (orange KOM/QOM, blue PR, grey fastest); the climb's progress as a bar |
-| Finished | crossed the finish line | result for 5 s ("NEW PR −2.6 s"), then back to idle |
+| Approach | within 500 m of a climb start that is still ahead | climb name (or "FTP looks out of date"); 3 s power large, coloured against FTP; the target letter; "in 300 m" and a "hold 300 W" tag (FTP, see entry speed); a gauge of 10 s power against it with a mark at FTP. The target is planned here, so nothing heavy runs at the start line |
+| Active | crossed the start line of a climb ≥ 2 % | "PR  2.1 km to go  6%"; **3 s power large**, coloured against the watts to hold; the target letter; a "hold 305 W" tag in the target's colour and "2 s ahead" / "1 s behind" / "on pace"; the climb's progress as a bar, green or red. The rider steers by watts; the gap is the score. Reverses the earlier "gap large" layout, made before EdgePacer replaced the power field |
+| Finished | crossed the finish line | for 5 s: the time in whole seconds; "NEW PR by 4 s", "beat the KOM by ~2 s", "3 s off your PR" ("~" within 3 s: Strava times it differently); then back to 3 s power |
 | Can't pace | bad profile, no climbs built in, no GPS fix | "SET FTP", "SET WEIGHT" or "NO CLIMBS" instead of numbers; "no GPS fix" on the bottom line while pacing |
 
 - **Gap:** time on the reference curve at this distance − elapsed, in **whole seconds**, "on pace" within 1 s,
@@ -93,8 +93,16 @@ The rider chooses nothing. EdgePacer tries, in order:
   so the gap keeps counting.
 - **Watts:** ahead → the plan's watts, to bank the time. Behind → the even power that still finishes on time,
   never above the ceiling (section 3). **No watts while stopped and for 10 s after**, so nobody sprints away from
-  a red light.
-- **Target switch:** the letter flashes and the Edge beeps once (`Attention.playTone`).
+  a red light. Shown rounded to 5 W, moving at most 1 W a second (a new target's watts show at once): riders ignore
+  a jumpy target. The own-power correction counts only riding whose speed is within 0.5 m/s of its 10 s average
+  (a coast-down isn't steady) and stays within ×0.8–×1.25 (a headwind or a wheel to sit on isn't the model's error).
+- **Colours, one meaning each, always with words:** yellow KOM/QOM, purple PR, blue best (targets); green good, red
+  do more (behind, under the watts), orange too hard (over the watts). Power is coloured on 10 s power within ±5 %;
+  3 s power swings wider than that on a climb.
+- **Target switch:** the field fills with the new target's colour for 2 s, the Edge beeps once
+  (`Attention.playTone`), and the line says "PR out of reach, now best" for 3 s before the new gap shows.
+- **Safety net:** an error while pacing ends the climb, an error while drawing shows plain 3 s power. Connect IQ's
+  time-limit and out-of-memory errors can't be caught: keep native power on another page for the first rides.
 - **Start and finish:** crossing a line square to the climb's first 25 m, within 25 m of its first point, in the
   climb's direction; the finish when the distance along reaches the end. Both interpolated between GPS fixes.
 - **Distance along the climb:** GPS projected onto the climb's path (a point every 25 m), searched only a few points
@@ -102,8 +110,15 @@ The rider chooses nothing. EdgePacer tries, in order:
   false gap. Blending in wheel distance is for later, if the ride files say so.
 - **Abandon:** more than 50 m off the climb for 15 s. No result is shown.
 - **New PR:** later. In v1 the ghost changes only with the next Strava sync and rebuild.
-- **Ride file, from the first build:** the gap, the target letter, the watts target and the model's speed go into
-  the FIT file as developer fields (`FitContributor`), so every ride can be replayed and the defaults checked.
+- **Ride file:** every second, as developer fields (`FitContributor`): state (idle, approach, climb, result), target
+  letter, gap, watts to hold, the model's speed, metres along the path, seconds since the start line, speed at the
+  line, and 10 s power over what the model says the current speed costs. Enough to check a ride against Strava's
+  segment effort and the defaults.
+
+**First real ride** (pass before anything else): one climb with a Strava PR, three efforts (at FTP, at about 85 % of
+FTP, one with a stop), one of them with ClimbPro on; 1 s recording, auto-pause off, power meter zero-offset, native
+power on another page, the screen filmed. Pass: each finish within ±2 s of Strava's time, the start caught every
+time, the watts to hold within 10 % at steady power, no crash.
 
 Mockups at Edge 540/840 size: [layout/on-your-page.png](layout/on-your-page.png) (source next to it).
 

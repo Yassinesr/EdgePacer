@@ -14,12 +14,16 @@ import Toybox.WatchUi;
 // climbs.json, the result for 5 s after the finish. Layout: docs/layout/on-your-page.png.
 class EdgePacerField extends WatchUi.DataField {
     const RESULT_MS = 5000;    // the result stays this long, then back to idle
-    const FLASH_MS = 2000;     // colours swap this long when the target changes
+    const FLASH_MS = 2000;     // the field fills with the new target's colour this long when the target changes
+    const SWITCH_MS = 3000;    // "PR out of reach, now best" stays this long
+    const HOLD_RATE = 1.0;     // W a second the watts to hold may move: riders ignore a jumpy target
     const NEAR_M = 500.0;      // this close to a climb start the approach screen replaces the 3 s power
     const OLD_S = 1209600;     // climbs synced more than 14 days ago ask for a sync
     const NAMES = {"K" => "KOM", "Q" => "QOM", "P" => "PR", "F" => "best"};
     const CODES = {"K" => 1, "Q" => 2, "P" => 3, "F" => 4};  // the ride file's target field; 0 between climbs
-    const TINT = {"K" => Graphics.COLOR_ORANGE, "Q" => Graphics.COLOR_ORANGE, "P" => Graphics.COLOR_BLUE, "F" => Graphics.COLOR_DK_GRAY};
+    // one meaning per colour: yellow KOM/QOM, purple PR, blue best (targets); green good, red do more (behind, under
+    // the watts), orange too hard (over the watts). Words always go with them.
+    const TINT = {"K" => Graphics.COLOR_YELLOW, "Q" => Graphics.COLOR_YELLOW, "P" => Graphics.COLOR_PURPLE, "F" => Graphics.COLOR_BLUE};
     const ZONES = [0.55, 0.75, 0.90, 1.05, 1.20, 1.50];  // Coggan power zones, fractions of FTP
     const ZONE_TINT = [Graphics.COLOR_DK_GRAY, Graphics.COLOR_BLUE, Graphics.COLOR_DK_GREEN, Graphics.COLOR_YELLOW, Graphics.COLOR_ORANGE, Graphics.COLOR_RED, Graphics.COLOR_PURPLE];
     const NUM = [Graphics.FONT_NUMBER_THAI_HOT, Graphics.FONT_NUMBER_HOT, Graphics.FONT_NUMBER_MEDIUM, Graphics.FONT_NUMBER_MILD];
@@ -32,7 +36,8 @@ class EdgePacerField extends WatchUi.DataField {
     var tr = null, target = null, startMs = 0, steady = 0, sinceStop = null, lastDone = 0.0, lastElapsed = 0.0;
     var out = null, letter = null, flashUntil = 0, result = null, resultUntil = 0, hint = null, hintM = 0.0;
     var ahead = null, aheadFor = null;  // the target planned on the approach to `aheadFor`
-    var fGap, fWatts, fTarget, fSpeed;
+    var hold = null, switchFrom = null, switchUntil = 0, entryV = null;  // watts shown, the target just dropped, speed at the line
+    var fGap, fWatts, fTarget, fSpeed, fState, fAlong, fClock, fEntry, fRatio;
 
     function initialize() {
         DataField.initialize();
@@ -40,6 +45,13 @@ class EdgePacerField extends WatchUi.DataField {
         fWatts = createField("target_power", 1, FitContributor.DATA_TYPE_UINT16, {:mesgType => FitContributor.MESG_TYPE_RECORD, :units => "W"});
         fTarget = createField("target", 2, FitContributor.DATA_TYPE_UINT8, {:mesgType => FitContributor.MESG_TYPE_RECORD});
         fSpeed = createField("model_speed", 3, FitContributor.DATA_TYPE_UINT16, {:mesgType => FitContributor.MESG_TYPE_RECORD, :units => "cm/s"});
+        // for checking a ride against Strava: 0 idle, 1 approach, 2 climb, 3 result; metres along the path; seconds
+        // since the start line; speed at the line; the rider's power over the model's at their speed (the correction)
+        fState = createField("state", 4, FitContributor.DATA_TYPE_UINT8, {:mesgType => FitContributor.MESG_TYPE_RECORD});
+        fAlong = createField("along", 5, FitContributor.DATA_TYPE_FLOAT, {:mesgType => FitContributor.MESG_TYPE_RECORD, :units => "m"});
+        fClock = createField("climb_time", 6, FitContributor.DATA_TYPE_FLOAT, {:mesgType => FitContributor.MESG_TYPE_RECORD, :units => "s"});
+        fEntry = createField("entry_speed", 7, FitContributor.DATA_TYPE_UINT16, {:mesgType => FitContributor.MESG_TYPE_RECORD, :units => "cm/s"});
+        fRatio = createField("power_ratio", 8, FitContributor.DATA_TYPE_FLOAT, {:mesgType => FitContributor.MESG_TYPE_RECORD});
 
         // zero input: everything about the rider comes from the Garmin profile; same limits as Rider in model/pacer.py
         var prof = UserProfile.getProfile();
@@ -90,17 +102,21 @@ class EdgePacerField extends WatchUi.DataField {
             var secs = lastFixMs == null ? 1 : (ms - lastFixMs + 500) / 1000;
             lastFixMs = ms;
             var ll = loc.toDegrees();
-            if (tr == null) {
-                lookForStart(ll, ms, secs);
-            } else {
-                pace(tr.update(tr.xy(ll), secs), ms, v);
+            try {
+                if (tr == null) {
+                    lookForStart(ll, ms, secs, v);
+                } else {
+                    pace(tr.update(tr.xy(ll), secs), ms, v);
+                }
+            } catch (e) {
+                stop();  // a bug ends the climb, never the power field
             }
         }
         record();
     }
 
     // name the nearest climb start, and begin pacing when the rider crosses one
-    function lookForStart(ll, ms, secs) {
+    function lookForStart(ll, ms, secs, v) {
         var near = NEAR_M;
         hint = null;
         for (var i = 0; i < trackers.size(); i++) {
@@ -115,6 +131,8 @@ class EdgePacerField extends WatchUi.DataField {
                 lastElapsed = (ms - startMs) / 1000.0;
                 target = aheadFor == t ? ahead : plan(t);  // planned on the approach: no search at the start line
                 letter = target.letter;
+                hold = null;
+                entryV = v;
                 hint = null;
                 return;
             }
@@ -132,8 +150,10 @@ class EdgePacerField extends WatchUi.DataField {
     }
 
     function plan(t) {
-        var c = t.climb;
-        return Pacer.choose(c["sec"], rider, c[recKey], recLetter, c["pr"], c["ghost"], wBal);
+        var c = t.climb, t0 = System.getTimer();
+        var p = Pacer.choose(c["sec"], rider, c[recKey], recLetter, c["pr"], c["ghost"], wBal);
+        System.println("planned " + c["name"] + " in " + (System.getTimer() - t0) + " ms");  // simulator console: try the longest climb
+        return p;
     }
 
     function pace(done, ms, v) {
@@ -158,33 +178,45 @@ class EdgePacerField extends WatchUi.DataField {
             sinceStop = 0;  // stopped: no watts until RESTART_S after getting going again
         }
         out = target.now(done, elapsed, wBal, p10, v10, steady, sinceStop);
+        var w = out[1];
         if (!out[0].equals(letter)) {
+            switchFrom = NAMES[letter];
+            switchUntil = ms + SWITCH_MS;
             letter = out[0];
             flashUntil = ms + FLASH_MS;
+            hold = w;  // a new target's watts show at once
             if (Attention has :playTone) {
                 Attention.playTone(Attention.TONE_ALERT_HI);
             }
+        } else if (w != null) {
+            hold = hold == null ? w : (w > hold + HOLD_RATE ? hold + HOLD_RATE : (w < hold - HOLD_RATE ? hold - HOLD_RATE : w));
         }
         lastDone = done;
         lastElapsed = elapsed;
     }
 
-    // Edge timing: Strava's own may differ by 1-3 s
+    // Edge timing: Strava's own may differ by 1-3 s, so whole seconds, and "~" when it's that close
     function finish(secs, ms) {
         var c = tr.climb, rec = c[recKey], pr = c["pr"];
         var line = "first time", tint = Graphics.COLOR_DK_GRAY;
         if (rec != null && secs < rec) {
-            line = "under the " + NAMES[recLetter];
-            tint = Graphics.COLOR_ORANGE;
+            line = "beat the " + NAMES[recLetter] + " by " + by(rec - secs);
+            tint = TINT[recLetter];
         } else if (pr != null && secs < pr) {
-            line = "NEW PR by " + (pr - secs).format("%.1f") + " s";
+            line = "NEW PR by " + by(pr - secs);
             tint = Graphics.COLOR_DK_GREEN;
         } else if (pr != null) {
-            line = "PR +" + (secs - pr).format("%.1f") + " s";
+            line = by(secs - pr) + " off your PR";
         }
-        result = [(secs / 60).toNumber() + ":" + (secs.toNumber() % 60).format("%02d"), line, c["name"], tint];
+        var s = Math.round(secs).toNumber();
+        result = [s / 60 + ":" + (s % 60).format("%02d"), line, c["name"], tint];
         resultUntil = ms + RESULT_MS;
         stop();
+    }
+
+    function by(d) {
+        var s = Math.round(d).toNumber();
+        return (d < 3 ? "~" : "") + (s < 1 ? 1 : s) + " s";
     }
 
     function stop() {
@@ -199,22 +231,38 @@ class EdgePacerField extends WatchUi.DataField {
 
     // the ride file's fields, every second, for checking the model after the ride
     function record() {
-        var o = out;
+        var o = out, m = o != null && p10 != null && v10 != null ? target.powerAt(lastDone, v10) : 0.0;
+        fState.setData(result != null ? 3 : (o != null ? 2 : (ahead != null ? 1 : 0)));
         fTarget.setData(o == null ? 0 : CODES[o[0]]);
         fGap.setData(o == null ? 0 : Math.round(o[2]).toNumber());
-        fWatts.setData(o == null || o[1] == null ? 0 : Math.round(o[1]).toNumber());
+        fWatts.setData(o == null || hold == null ? 0 : Math.round(hold).toNumber());
         fSpeed.setData(o == null || o[1] == null ? 0 : Math.round(target.speedAt(lastDone, o[1]) * 100).toNumber());
+        fAlong.setData(o == null ? 0.0 : lastDone);
+        fClock.setData(o == null ? 0.0 : lastElapsed);
+        fEntry.setData(o == null || entryV == null ? 0 : Math.round(entryV * 100).toNumber());
+        fRatio.setData(m > 0 ? p10 / m : 0.0);
     }
 
-    // Four bands, like a Garmin field: label, big number, one line, a bar. Always a number worth glancing at:
-    // 3 s power between climbs and on the approach, the gap on the climb, the time at the finish.
     function onUpdate(dc as Graphics.Dc) as Void {
+        try {
+            draw(dc);
+        } catch (e) {
+            // whatever went wrong, the rider keeps a power field
+            dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_WHITE);
+            dc.clear();
+            number(dc, p3 == null ? "--" : Math.round(p3).toNumber().toString(), "W", Graphics.COLOR_BLACK, dc.getWidth(), 0, dc.getHeight(), 0);
+        }
+    }
+
+    // Four bands, like a Garmin field: label, big number, one line, a bar. The big number is always live power,
+    // except the time at the finish: the rider steers by watts; the gap is the score, on the line below.
+    function draw(dc) {
         var w = dc.getWidth(), h = dc.getHeight();
         var bg = getBackgroundColor(), dark = bg == Graphics.COLOR_BLACK;
         var fg = dark ? Graphics.COLOR_WHITE : Graphics.COLOR_BLACK;
         if (letter != null && System.getTimer() < flashUntil) {
             bg = TINT[letter];  // the new target's colour fills the field for a moment
-            fg = Graphics.COLOR_WHITE;
+            fg = bg == Graphics.COLOR_YELLOW ? Graphics.COLOR_BLACK : Graphics.COLOR_WHITE;
         }
         dc.setColor(fg, bg);
         dc.clear();
@@ -228,22 +276,29 @@ class EdgePacerField extends WatchUi.DataField {
             pill(dc, result[1], result[3], w / 2, lab + big, row, w - 16);
             bar(dc, 1.0, result[3], null, w, barY, barH, dark);
         } else if (out != null) {
-            var g = Math.round(out[2]).toNumber(), tint = g > 0 ? good : (g < 0 ? Graphics.COLOR_RED : fg);
-            var left = ((tr.total - lastDone) / 1000.0).format("%.1f") + " km  " + (target.gradeAt(lastDone) * 100).format("%.0f") + "%";
-            label(dc, noFix ? "NO GPS FIX" : (NAMES[out[0]] + " pace  ").toUpper() + left, noFix ? Graphics.COLOR_RED : soft, w, lab);
-            number(dc, g.toString(), g > 0 ? "s ahead" : (g < 0 ? "s behind" : "s on pace"), tint, w, lab, big, badge(dc, out[0], w, h, lab));
-            pill(dc, out[1] == null ? "get going" : "hold " + Math.round(out[1]).toNumber() + " W", out[1] == null ? Graphics.COLOR_DK_GRAY : TINT[out[0]], w / 2, lab + big, row, w - 16);
-            bar(dc, lastDone / tr.total, tint, null, w, barY, barH, dark);
+            var g = Math.round(out[2]).toNumber(), name = NAMES[out[0]];
+            var left = ((tr.total - lastDone) / 1000.0).format("%.1f") + " km to go  " + (target.gradeAt(lastDone) * 100).format("%.0f") + "%";
+            label(dc, noFix ? "NO GPS FIX" : name.toUpper() + "  " + left, noFix ? Graphics.COLOR_RED : soft, w, lab);
+            number(dc, power, "W", against(hold, fg, good), w, lab, big, badge(dc, out[0], w, h, lab));
+            if (System.getTimer() < switchUntil && switchFrom != null) {
+                dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
+                fit(dc, switchFrom + " out of reach, now " + name, TXT, w / 2, lab + big, w - 16, row);
+            } else {
+                var watts = out[1] == null || hold == null ? "get going" : "hold " + Math.round(hold / 5.0).toNumber() * 5 + " W";
+                pill(dc, watts, out[1] == null ? Graphics.COLOR_DK_GRAY : TINT[out[0]], w * 30 / 100, lab + big, row, w * 56 / 100);
+                dc.setColor(g > 0 ? good : (g < 0 ? Graphics.COLOR_RED : fg), Graphics.COLOR_TRANSPARENT);
+                fit(dc, g == 0 ? "on pace" : g.abs() + " s " + (g > 0 ? "ahead" : "behind"), TXT, w * 79 / 100, lab + big, w * 40 / 100, row);
+            }
+            bar(dc, lastDone / tr.total, g < 0 ? Graphics.COLOR_RED : good, null, w, barY, barH, dark);
         } else if (ahead != null) {
             // the approach: your power now against the watts to ride in at, and the metres left
             var c = aheadFor.climb, entry = rider.ftp;
-            label(dc, Pacer.ftpOutOfDate(rider, c["pr"], c["prw"]) ? "FTP LOOKS OUT OF DATE" : c["name"], Graphics.COLOR_ORANGE, w, lab);
-            number(dc, power, "W", fg, w, lab, big, badge(dc, ahead.letter, w, h, lab));
+            label(dc, Pacer.ftpOutOfDate(rider, c["pr"], c["prw"]) ? "FTP LOOKS OUT OF DATE" : c["name"], fg, w, lab);
+            number(dc, power, "W", against(entry, fg, good), w, lab, big, badge(dc, ahead.letter, w, h, lab));
             dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
-            fit(dc, noFix ? gpsNote : ((hintM / 10).toNumber() * 10) + " m", TXT, w * 19 / 100, lab + big, w * 36 / 100, row);
-            pill(dc, "ride in " + entry + " W", TINT[ahead.letter], w * 68 / 100, lab + big, row, w * 60 / 100);
-            var r = p3 == null ? 0.0 : p3 / entry;
-            bar(dc, r / 1.5, r < 0.95 ? Graphics.COLOR_BLUE : (r > 1.05 ? Graphics.COLOR_RED : good), 1 / 1.5, w, barY, barH, dark);
+            fit(dc, noFix ? gpsNote : "in " + (hintM / 10).toNumber() * 10 + " m", TXT, w * 21 / 100, lab + big, w * 40 / 100, row);
+            pill(dc, "hold " + entry + " W", TINT[ahead.letter], w * 70 / 100, lab + big, row, w * 56 / 100);
+            bar(dc, p10 == null ? 0.0 : p10 / entry / 1.5, against(entry, soft, good), 1 / 1.5, w, barY, barH, dark);
         } else {
             // a power field: 3 s power with its zone; a status word when EdgePacer can't pace
             var z = rider == null || p3 == null ? null : zone(p3);
@@ -267,6 +322,16 @@ class EdgePacerField extends WatchUi.DataField {
                 bar(dc, p3 / (1.5 * rider.ftp), zoneTint(z, dark), 1 / 1.5, w, barY, barH, dark);
             }
         }
+    }
+
+    // the colour of power against the watts to hold, on 10 s power (3 s swings wider than the band):
+    // red under (do more), green within 5 %, orange over (too hard)
+    function against(watts, none, good) {
+        if (p10 == null || watts == null || watts <= 0) {
+            return none;
+        }
+        var r = p10 / watts;
+        return r < 0.95 ? Graphics.COLOR_RED : (r > 1.05 ? Graphics.COLOR_ORANGE : good);
     }
 
     function zone(p) {
@@ -293,7 +358,7 @@ class EdgePacerField extends WatchUi.DataField {
         var r = (h < w ? h : w) / 10;
         dc.setColor(TINT[text], Graphics.COLOR_TRANSPARENT);
         dc.fillCircle(w - r - 8, lab + r + 2, r);
-        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
+        dc.setColor(TINT[text] == Graphics.COLOR_YELLOW ? Graphics.COLOR_BLACK : Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
         dc.drawText(w - r - 8, lab + r + 2, font(dc, text, TXT, r * 2, r * 2), text, Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
         return 2 * r + 16;
     }

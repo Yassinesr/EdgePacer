@@ -13,6 +13,9 @@ module Pacer {
     const ITER = 20;           // bisection steps for power and time: 0.002 W, 0.01 s (the Python uses 40)
     const NEWTON = 8;          // Newton steps in speedFor, as in the Python
     const STEP_M = 10.0;       // m, integration step while a fast entry slows to the climb's steady speed
+    const DROP_S = 10.0;       // s a target must stay out of reach before it is dropped: one GPS jump mustn't cost the PR
+    const RATIO_MIN = 0.8;     // the own-power correction stays within these: wind and drafting aren't the model's error
+    const RATIO_MAX = 1.25;
 
     class Rider {
         var kg, ftp, cda;
@@ -178,6 +181,7 @@ module Pacer {
         var letter, targetS, power, fallback, rider, p, curveD, curveT;
         var dropped = false;
         var d0 = 0.0, t0 = 0.0;  // where and when this plan starts: not the start line for a fresh fallback (restart)
+        var outSince = null;     // when this target went out of reach, while it waits DROP_S to be dropped
 
         // power: the even watts for targetS, from choose; ghost: flat [distance, time, ...] of the PR ride, or null;
         // v0: the speed at the start line, or null
@@ -258,9 +262,11 @@ module Pacer {
             // shortcut: need and cap are recomputed every second; recompute only when the gap moves if the watchdog trips
             var nc = needAndCap(rl, ra, rb, targetS - since, wLeft);
             var need = nc[0], cap = nc[1], w;
+            var out = gap < 0 && (need == null || need > cap);
+            outSince = out ? (outSince != null ? outSince : since) : null;
             if (gap >= 0) {
                 w = power < cap ? power : cap;
-            } else if (fallback != null && (need == null || need > cap)) {
+            } else if (out && fallback != null && since - outSince >= DROP_S) {
                 dropped = true;
                 if (fallback.fallback == null) {
                     fallback = fallback.restart(done, elapsed, wLeft, speed);  // the fastest from here, not from the start line
@@ -275,8 +281,9 @@ module Pacer {
             var a = ra[0], b = rb[0];
             if (pw != null && pw > 0 && speed != null && speed > 0 && steadyS >= STEADY_S && a * speed + b * speed * speed * speed > 0) {
                 // the rider's own power, scaled by what the model says the needed speed costs vs their current speed
-                var rel = pw * w / (a * speed + b * speed * speed * speed);
-                w = rel < cap ? rel : cap;
+                var ratio = pw / (a * speed + b * speed * speed * speed);
+                ratio = ratio < RATIO_MIN ? RATIO_MIN : (ratio > RATIO_MAX ? RATIO_MAX : ratio);
+                w = w * ratio < cap ? w * ratio : cap;
             }
             return [letter, w, gap];
         }
@@ -300,6 +307,18 @@ module Pacer {
             t.d0 = done;
             t.t0 = elapsed;
             return t;
+        }
+
+        // what the model says riding at v costs on the section at `done`, for the ride file's correction ratio
+        function powerAt(done, v) {
+            var start = 0.0;
+            for (var i = 0; i < p[0].size(); i++) {
+                start += p[0][i];
+                if (done < start) {
+                    return p[1][i] * v + p[2][i] * v * v * v;
+                }
+            }
+            return 0.0;
         }
 
         // the model's speed at the current watts, for the ride file

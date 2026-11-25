@@ -25,6 +25,8 @@ STEADY_S = 20.0      # s of steady riding on the climb before watts come from th
 RESTART_S = 10.0     # s after a stop with no watts shown, so nobody sprints away from a red light
 NEWTON = 8           # Newton steps in speed_for: converged to a mm/s from CAP on any grade
 STEP_M = 10.0        # m, integration step while a fast entry slows to the climb's steady speed
+DROP_S = 10.0        # s a target must stay out of reach before it is dropped: one GPS jump mustn't cost the PR
+RATIO = (0.8, 1.25)  # the own-power correction stays within this: wind and drafting aren't the model's error
 
 
 @dataclass
@@ -232,7 +234,7 @@ class Pacer:
 
     def __init__(self, sections, rider, target_s, ghost=None, name="Target", next=None, w_left=None, v0=None):
         self.rider, self.target_s, self.name, self.next, self.dropped = rider, target_s, name, next, False
-        self.sections, self.d0, self.t0 = sections, 0.0, 0.0
+        self.sections, self.d0, self.t0, self.out_since = sections, 0.0, 0.0, None
         self.lengths = [s.length for s in sections]
         self.ab = [coeffs(s, rider) for s in sections]
         self.power = self._watts(self.lengths, self.ab, target_s, w_left, v0)
@@ -264,7 +266,8 @@ class Pacer:
         elapsed_s runs from the start line and keeps running through stops, like Strava's elapsed time.
         w_left: the rider's reserve right now (Rider.w_after), full if unknown.
         Ahead: the plan's watts, to bank the time. Behind: the even power that still finishes on time; once even the
-        most the rider can hold can't make it, drop to the next target for good.
+        most the rider can hold can't make it for DROP_S, drop to the next target for good (the most they can hold
+        meanwhile).
         power, speed, steady_s: the rider's smoothed power and speed and how long they have ridden steadily; after
         STEADY_S the watts are their own power scaled to the speed needed, which cancels the model's defaults.
         since_stop_s: seconds since the rider last got going after a stop on this climb; no watts for RESTART_S."""
@@ -282,9 +285,11 @@ class Pacer:
         if not lengths:
             return self.name, None, gap
         need, cap = self._need_and_cap(lengths, ab, self.target_s - since, w_left)
+        out = gap < 0 and (need is None or need > cap)
+        self.out_since = (self.out_since if self.out_since is not None else since) if out else None
         if gap >= 0:
             watts = min(self.power, cap)
-        elif self.next and (need is None or need > cap):
+        elif out and self.next and since - self.out_since >= DROP_S:
             self.dropped = True
             if self.next.next is None:  # the last target: the fastest from here on, not from the start line
                 self.next = self.next.restart(done_m, elapsed_s, w_left, speed)
@@ -296,7 +301,8 @@ class Pacer:
         a, b = ab[0]
         if power and speed and steady_s >= STEADY_S and a * speed + b * speed ** 3 > 0:
             # what the model says this rider needs, relative to what it says their current speed costs
-            watts = min(cap, power * watts / (a * speed + b * speed ** 3))
+            ratio = min(max(power / (a * speed + b * speed ** 3), RATIO[0]), RATIO[1])
+            watts = min(cap, watts * ratio)
         return self.name, watts, gap
 
 

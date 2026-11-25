@@ -1,7 +1,7 @@
 import unittest
 from dataclasses import replace
 
-from pacer import (CAP, Pacer, Rider, Section, beat, choose, coeffs, entry_speed, fastest, ftp_out_of_date,
+from pacer import (CAP, DROP_S, Pacer, Rider, Section, beat, choose, coeffs, entry_speed, fastest, ftp_out_of_date,
                    ride_time, section_times, sections_from_profile, speed_for)
 
 RIDER = Rider(72, ftp=300)
@@ -87,7 +87,9 @@ class TargetTest(unittest.TestCase):
         p = choose(CLIMB, RIDER, pr_s=BEST + 30)
         at = p.planned_time(1500) + 8
         self.assertEqual(p.now(1500, at)[0], "PR")
-        self.assertEqual(choose(CLIMB, RIDER, pr_s=BEST + 30).now(1500, at, w_left=0)[0], "Fastest")
+        tired = choose(CLIMB, RIDER, pr_s=BEST + 30)
+        tired.now(1500, at, w_left=0)
+        self.assertEqual(tired.now(1510, at + DROP_S, w_left=0)[0], "Fastest")
 
 
 class LiveTest(unittest.TestCase):
@@ -127,6 +129,8 @@ class LiveTest(unittest.TestCase):
         real = 1.1 * (a * v + b * v ** 3)  # this rider really needs 10 % more than the model says at that speed
         _, watts, _ = self.p.now(1500, planned, power=real, speed=v, steady_s=30)
         self.assertAlmostEqual(watts, 1.1 * model_watts, delta=0.5)
+        _, watts, _ = self.p.now(1500, planned, power=2 * real, speed=v, steady_s=30)  # a headwind, not the rider
+        self.assertAlmostEqual(watts, 1.25 * model_watts, delta=0.5)
         self.assertEqual(self.p.now(1500, planned, power=real, speed=v, steady_s=5)[1], model_watts)  # not steady yet
 
     def test_gap_is_against_target_pace_not_the_pr_ride(self):
@@ -142,17 +146,28 @@ class LiveTest(unittest.TestCase):
 
     def test_drops_to_the_next_target_for_good_once_out_of_reach(self):
         p = choose(CLIMB, RIDER, pr_s=BEST + 30)
-        name, _, _ = p.now(1500, p.planned_time(1500) + 120)  # lost two minutes: the PR is gone
-        self.assertEqual(name, "Fastest")
+        at = p.planned_time(1500) + 120  # lost two minutes: the PR is gone
+        name, watts, _ = p.now(1500, at)
+        self.assertEqual(name, "PR")  # not on one reading: a GPS jump looks the same
+        self.assertAlmostEqual(watts, fastest(LENGTHS[9:], AB[9:], RIDER)[0], delta=1)  # the most the rider can hold
+        self.assertEqual(p.now(1510, at + DROP_S)[0], "Fastest")
         self.assertEqual(p.now(1600, p.planned_time(1600))[0], "Fastest")  # even back on PR pace
+
+    def test_a_target_back_in_reach_is_kept(self):
+        p = choose(CLIMB, RIDER, pr_s=BEST + 30)
+        p.now(1500, p.planned_time(1500) + 120)  # one bad reading
+        p.now(1510, p.planned_time(1510))  # back on pace
+        self.assertEqual(p.now(1520, p.planned_time(1500) + 120 + DROP_S)[0], "PR")  # the 10 s start again
 
     def test_falling_back_plans_the_fastest_afresh_from_here(self):
         p = choose(CLIMB, RIDER, pr_s=BEST + 30)
-        name, watts, gap = p.now(1500, p.planned_time(1500) + 120)
+        at = p.planned_time(1500) + 120
+        p.now(1500, at)
+        name, watts, gap = p.now(1510, at + DROP_S)
         self.assertEqual(name, "Fastest")
         self.assertAlmostEqual(gap, 0, delta=0.5)  # not the bigger gap to the plan made at the start line
         rest = p.next
-        self.assertAlmostEqual(sum(rest.lengths), 1500)
+        self.assertAlmostEqual(sum(rest.lengths), 1490)
         self.assertAlmostEqual(watts, fastest(rest.lengths, rest.ab, RIDER)[0], delta=1)
 
 
