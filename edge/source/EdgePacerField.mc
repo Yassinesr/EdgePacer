@@ -19,6 +19,9 @@ class EdgePacerField extends WatchUi.DataField {
     const OLD_S = 1209600;     // climbs synced more than 14 days ago ask for a sync
     const NAMES = {"K" => "KOM", "Q" => "QOM", "P" => "PR", "F" => "best"};
     const CODES = {"K" => 1, "Q" => 2, "P" => 3, "F" => 4};  // the ride file's target field; 0 between climbs
+    const TINT = {"K" => Graphics.COLOR_ORANGE, "Q" => Graphics.COLOR_ORANGE, "P" => Graphics.COLOR_BLUE, "F" => Graphics.COLOR_DK_GRAY};
+    const ZONES = [0.55, 0.75, 0.90, 1.05, 1.20, 1.50];  // Coggan power zones, fractions of FTP
+    const ZONE_TINT = [Graphics.COLOR_DK_GRAY, Graphics.COLOR_BLUE, Graphics.COLOR_DK_GREEN, Graphics.COLOR_YELLOW, Graphics.COLOR_ORANGE, Graphics.COLOR_RED, Graphics.COLOR_PURPLE];
     const NUM = [Graphics.FONT_NUMBER_THAI_HOT, Graphics.FONT_NUMBER_HOT, Graphics.FONT_NUMBER_MEDIUM, Graphics.FONT_NUMBER_MILD];
     const TXT = [Graphics.FONT_LARGE, Graphics.FONT_MEDIUM, Graphics.FONT_SMALL, Graphics.FONT_TINY, Graphics.FONT_XTINY];
 
@@ -168,15 +171,17 @@ class EdgePacerField extends WatchUi.DataField {
     // Edge timing: Strava's own may differ by 1-3 s
     function finish(secs, ms) {
         var c = tr.climb, rec = c[recKey], pr = c["pr"];
-        var line = "first time";
+        var line = "first time", tint = Graphics.COLOR_DK_GRAY;
         if (rec != null && secs < rec) {
             line = "under the " + NAMES[recLetter];
+            tint = Graphics.COLOR_ORANGE;
         } else if (pr != null && secs < pr) {
             line = "NEW PR by " + (pr - secs).format("%.1f") + " s";
+            tint = Graphics.COLOR_DK_GREEN;
         } else if (pr != null) {
             line = "PR +" + (secs - pr).format("%.1f") + " s";
         }
-        result = [(secs / 60).toNumber() + ":" + (secs.toNumber() % 60).format("%02d"), line, c["name"]];
+        result = [(secs / 60).toNumber() + ":" + (secs.toNumber() % 60).format("%02d"), line, c["name"], tint];
         resultUntil = ms + RESULT_MS;
         stop();
     }
@@ -200,87 +205,149 @@ class EdgePacerField extends WatchUi.DataField {
         fSpeed.setData(o == null || o[1] == null ? 0 : Math.round(target.speedAt(lastDone, o[1]) * 100).toNumber());
     }
 
+    // Four bands, like a Garmin field: label, big number, one line, a bar. Always a number worth glancing at:
+    // 3 s power between climbs and on the approach, the gap on the climb, the time at the finish.
     function onUpdate(dc as Graphics.Dc) as Void {
         var w = dc.getWidth(), h = dc.getHeight();
-        var bg = getBackgroundColor(), fg = bg == Graphics.COLOR_BLACK ? Graphics.COLOR_WHITE : Graphics.COLOR_BLACK;
-        if (System.getTimer() < flashUntil) {
-            var x = bg;
-            bg = fg;
-            fg = x;
+        var bg = getBackgroundColor(), dark = bg == Graphics.COLOR_BLACK;
+        var fg = dark ? Graphics.COLOR_WHITE : Graphics.COLOR_BLACK;
+        if (letter != null && System.getTimer() < flashUntil) {
+            bg = TINT[letter];  // the new target's colour fills the field for a moment
+            fg = Graphics.COLOR_WHITE;
         }
         dc.setColor(fg, bg);
         dc.clear();
-        dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
-        var top = (h * 0.6).toNumber(), line = (h - top) / 2;
+        var good = dark ? Graphics.COLOR_GREEN : Graphics.COLOR_DK_GREEN, soft = dark ? Graphics.COLOR_LT_GRAY : Graphics.COLOR_DK_GRAY;
+        var lab = h * 16 / 100, big = h * 46 / 100, row = h * 22 / 100, barH = h * 6 / 100 > 5 ? h * 6 / 100 : 5;
+        var barY = h - barH - h * 3 / 100, power = p3 == null ? "--" : Math.round(p3).toNumber().toString();
 
-        if (status != null) {
-            fit(dc, status, TXT, w / 2, 0, w, top);
-            fit(dc, status.equals("NO CLIMBS") ? "sync, then rebuild" : "in your Garmin profile", TXT, w / 2, top, w, line);
-        } else if (result != null) {
-            fit(dc, result[0], NUM, w / 2, 0, w, top);
-            fit(dc, result[1], TXT, w / 2, top, w, line);
-            fit(dc, result[2], TXT, w / 2, top + line, w, line);
+        if (result != null) {
+            label(dc, result[2], fg, w, lab);
+            number(dc, result[0], "", fg, w, lab, big, 0);
+            pill(dc, result[1], result[3], w / 2, lab + big, row, w - 16);
+            bar(dc, 1.0, result[3], null, w, barY, barH, dark);
         } else if (out != null) {
-            var g = Math.round(out[2]).toNumber(), name = NAMES[out[0]];
-            number(dc, g.toString(), "s", w, top, badge(dc, out[0], w, h, fg, bg));  // no "+": number fonts may lack it; colour and words say ahead
-            if (g != 0) {
-                var good = g > 0;
-                dc.setColor(good ? (bg == Graphics.COLOR_BLACK ? Graphics.COLOR_GREEN : Graphics.COLOR_DK_GREEN) : Graphics.COLOR_RED, Graphics.COLOR_TRANSPARENT);
-                fit(dc, good ? "ahead of " + name + " pace" : "behind " + name + " pace", TXT, w / 2, top, w, line);
-                dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
-            } else {
-                fit(dc, "on " + name + " pace", TXT, w / 2, top, w, line);
-            }
-            var left = ((tr.total - lastDone) / 1000.0).format("%.1f") + " km " + (target.gradeAt(lastDone) * 100).format("%.0f") + "%";
-            fit(dc, noFix ? "no GPS fix" : (out[1] == null ? left : "hold " + Math.round(out[1]).toNumber() + " W  " + left), TXT, w / 2, top + line, w, line);
+            var g = Math.round(out[2]).toNumber(), tint = g > 0 ? good : (g < 0 ? Graphics.COLOR_RED : fg);
+            var left = ((tr.total - lastDone) / 1000.0).format("%.1f") + " km  " + (target.gradeAt(lastDone) * 100).format("%.0f") + "%";
+            label(dc, noFix ? "NO GPS FIX" : (NAMES[out[0]] + " pace  ").toUpper() + left, noFix ? Graphics.COLOR_RED : soft, w, lab);
+            number(dc, g.toString(), g > 0 ? "s ahead" : (g < 0 ? "s behind" : "s on pace"), tint, w, lab, big, badge(dc, out[0], w, h, lab));
+            pill(dc, out[1] == null ? "get going" : "hold " + Math.round(out[1]).toNumber() + " W", out[1] == null ? Graphics.COLOR_DK_GRAY : TINT[out[0]], w / 2, lab + big, row, w - 16);
+            bar(dc, lastDone / tr.total, tint, null, w, barY, barH, dark);
         } else if (ahead != null) {
-            // approaching a climb: the countdown, the target, and the watts and speed to arrive at
-            number(dc, ((hintM / 10).toNumber() * 10).toString(), "m", w, top, badge(dc, ahead.letter, w, h, fg, bg));
-            var c = aheadFor.climb;
-            fit(dc, Pacer.ftpOutOfDate(rider, c["pr"], c["prw"]) ? "FTP looks out of date" : c["name"], TXT, w / 2, top, w, line);
-            var start = "start " + Math.round(ahead.power).toNumber() + " W  " + (ahead.speedAt(0.0, ahead.power) * 3.6).format("%.0f") + " km/h";
-            fit(dc, noFix ? gpsNote : start, TXT, w / 2, top + line, w, line);
+            // the approach: your power now against the watts to ride in at, and the metres left
+            var c = aheadFor.climb, entry = rider.ftp;
+            label(dc, Pacer.ftpOutOfDate(rider, c["pr"], c["prw"]) ? "FTP LOOKS OUT OF DATE" : c["name"], Graphics.COLOR_ORANGE, w, lab);
+            number(dc, power, "W", fg, w, lab, big, badge(dc, ahead.letter, w, h, lab));
+            dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
+            fit(dc, noFix ? gpsNote : ((hintM / 10).toNumber() * 10) + " m", TXT, w / 4, lab + big, w / 2, row);
+            pill(dc, "ride in " + entry + " W", TINT[ahead.letter], w * 3 / 4, lab + big, row, w / 2 - 8);
+            var r = p3 == null ? 0.0 : p3 / entry;
+            bar(dc, r / 1.5, r < 0.95 ? Graphics.COLOR_BLUE : (r > 1.05 ? Graphics.COLOR_RED : good), 1 / 1.5, w, barY, barH, dark);
         } else {
-            number(dc, p3 == null ? "--" : Math.round(p3).toNumber().toString(), "W", w, top, 0);
-            fit(dc, "EdgePacer", TXT, w / 2, top, w, line);
+            // a power field: 3 s power with its zone; a status word when EdgePacer can't pace
+            var z = rider == null || p3 == null ? null : zone(p3);
+            label(dc, status != null ? status : "3S POWER", status != null ? Graphics.COLOR_RED : soft, w, lab);
+            if (z != null) {
+                pill(dc, "Z" + (z + 1), zoneTint(z, dark), w - lab * 2, 0, lab, lab * 3);
+            }
+            number(dc, power, "W", fg, w, lab, big, 0);
             var note = trackers.size() + (trackers.size() == 1 ? " climb" : " climbs");
             var age = Time.now().value() - synced;
-            if (noFix) {
+            if (status != null) {
+                note = status.equals("NO CLIMBS") ? "sync, then rebuild" : "in your Garmin profile";
+            } else if (noFix) {
                 note = gpsNote;
             } else if (age > OLD_S) {
                 note = "climbs " + age / 86400 + " days old";
             }
-            fit(dc, note, TXT, w / 2, top + line, w, line);
+            dc.setColor(soft, Graphics.COLOR_TRANSPARENT);
+            fit(dc, note, TXT, w / 2, lab + big, w, row);
+            if (z != null) {
+                bar(dc, p3 / (1.5 * rider.ftp), zoneTint(z, dark), 1 / 1.5, w, barY, barH, dark);
+            }
         }
     }
 
-    // the target letter in a disc, top right; returns the margin the big number must keep clear of it
-    function badge(dc, text, w, h, fg, bg) {
-        var r = (h < w ? h : w) / 9;
-        dc.fillCircle(w - r - 4, r + 4, r);
-        dc.setColor(bg, Graphics.COLOR_TRANSPARENT);
-        dc.drawText(w - r - 4, r + 4, Graphics.FONT_SMALL, text, Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
-        dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
-        return 2 * r + 8;
+    function zone(p) {
+        var i = 0;
+        while (i < ZONES.size() && p >= ZONES[i] * rider.ftp) {
+            i++;
+        }
+        return i;
     }
 
-    // the big number with its unit after it, centred in the top part, clear of `margin` px each side
-    function number(dc, text, unit, w, top, margin) {
-        var uw = dc.getTextWidthInPixels(unit, Graphics.FONT_SMALL) + 4;
-        var f = fit(dc, text, NUM, w / 2 - uw / 2, 0, w - 2 * margin - uw, top);
-        var x = w / 2 - uw / 2 + dc.getTextWidthInPixels(text, f) / 2 + 4;
-        dc.drawText(x, top / 2 + dc.getFontHeight(f) / 4, Graphics.FONT_SMALL, unit, Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER);
+    function zoneTint(z, dark) {
+        return z == 0 && dark ? Graphics.COLOR_LT_GRAY : (z == 2 && dark ? Graphics.COLOR_GREEN : ZONE_TINT[z]);
+    }
+
+    // small text at the top left, in the band 0..lab
+    function label(dc, text, tint, w, lab) {
+        dc.setColor(tint, Graphics.COLOR_TRANSPARENT);
+        var f = font(dc, text, [Graphics.FONT_SMALL, Graphics.FONT_TINY, Graphics.FONT_XTINY], w * 3 / 4, lab);
+        dc.drawText(8, lab / 2, f, text, Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER);
+    }
+
+    // the target letter in a disc, top right under the label; returns the margin the big number keeps clear of it
+    function badge(dc, text, w, h, lab) {
+        var r = (h < w ? h : w) / 10;
+        dc.setColor(TINT[text], Graphics.COLOR_TRANSPARENT);
+        dc.fillCircle(w - r - 8, lab + r + 2, r);
+        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(w - r - 8, lab + r + 2, font(dc, text, TXT, r * 2, r * 2), text, Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
+        return 2 * r + 16;
+    }
+
+    // text on a rounded tag in its colour, centred on cx in the band y..y+bh, at most mw wide
+    function pill(dc, text, tint, cx, y, bh, mw) {
+        var ph = bh * 8 / 10, f = font(dc, text, TXT, mw - ph, ph * 9 / 10);
+        var pw = dc.getTextWidthInPixels(text, f) + ph;
+        dc.setColor(tint, Graphics.COLOR_TRANSPARENT);
+        dc.fillRoundedRectangle(cx - pw / 2, y + (bh - ph) / 2, pw, ph, ph / 2);
+        dc.setColor(tint == Graphics.COLOR_YELLOW ? Graphics.COLOR_BLACK : Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(cx, y + bh / 2, f, text, Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
+    }
+
+    // a rounded gauge across the field, filled to frac (0..1) in its colour, with a mark at tick if given
+    function bar(dc, frac, tint, tick, w, y, bh, dark) {
+        var x = 8, bw = w - 16;
+        frac = frac < 0 ? 0.0 : (frac > 1 ? 1.0 : frac);
+        dc.setColor(dark ? Graphics.COLOR_DK_GRAY : Graphics.COLOR_LT_GRAY, Graphics.COLOR_TRANSPARENT);
+        dc.fillRoundedRectangle(x, y, bw, bh, bh / 2);
+        if (frac > 0) {
+            dc.setColor(tint, Graphics.COLOR_TRANSPARENT);
+            var fw = (bw * frac).toNumber();
+            dc.fillRoundedRectangle(x, y, fw > bh ? fw : bh, bh, bh / 2);
+        }
+        if (tick != null) {
+            dc.setColor(dark ? Graphics.COLOR_WHITE : Graphics.COLOR_BLACK, Graphics.COLOR_TRANSPARENT);
+            dc.fillRectangle(x + (bw * tick).toNumber() - 1, y - 3, 3, bh + 6);
+        }
+    }
+
+    // the big number centred in the band y..y+bh, its unit after it in a small font, clear of `margin` px each side
+    function number(dc, text, unit, tint, w, y, bh, margin) {
+        var uw = unit.length() > 0 ? dc.getTextWidthInPixels(unit, Graphics.FONT_SMALL) + 6 : 0;
+        dc.setColor(tint, Graphics.COLOR_TRANSPARENT);
+        var f = fit(dc, text, NUM, w / 2 - uw / 2, y, w - 2 * margin - uw, bh);
+        if (uw > 0) {
+            var x = w / 2 - uw / 2 + dc.getTextWidthInPixels(text, f) / 2 + 6;
+            dc.drawText(x, y + bh / 2 + dc.getFontHeight(f) / 4, Graphics.FONT_SMALL, unit, Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER);
+        }
+    }
+
+    // the biggest of fonts (largest first) that fits text in bw x bh
+    function font(dc, text, fonts, bw, bh) {
+        for (var i = 0; i < fonts.size(); i++) {
+            if (dc.getTextWidthInPixels(text, fonts[i]) <= bw && dc.getFontHeight(fonts[i]) <= bh) {
+                return fonts[i];
+            }
+        }
+        return fonts[fonts.size() - 1];
     }
 
     // draws text in the biggest of fonts (largest first) that fits a bw x bh box centred on cx; returns the font
     function fit(dc, text, fonts, cx, y, bw, bh) {
-        var f = fonts[fonts.size() - 1];
-        for (var i = 0; i < fonts.size(); i++) {
-            if (dc.getTextWidthInPixels(text, fonts[i]) <= bw && dc.getFontHeight(fonts[i]) <= bh) {
-                f = fonts[i];
-                break;
-            }
-        }
+        var f = font(dc, text, fonts, bw, bh);
         dc.drawText(cx, y + bh / 2, f, text, Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
         return f;
     }

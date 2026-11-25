@@ -1,8 +1,8 @@
 import unittest
 from dataclasses import replace
 
-from pacer import (CAP, Pacer, Rider, Section, beat, choose, coeffs, fastest, ftp_out_of_date, ride_time,
-                   sections_from_profile, speed_for)
+from pacer import (CAP, Pacer, Rider, Section, beat, choose, coeffs, entry_speed, fastest, ftp_out_of_date,
+                   ride_time, section_times, sections_from_profile, speed_for)
 
 RIDER = Rider(72, ftp=300)
 CLIMB = sections_from_profile([0, 500, 1200, 1500, 2400, 3000], [500, 525, 581, 590, 671, 707])
@@ -145,6 +145,34 @@ class LiveTest(unittest.TestCase):
         name, _, _ = p.now(1500, p.planned_time(1500) + 120)  # lost two minutes: the PR is gone
         self.assertEqual(name, "Fastest")
         self.assertEqual(p.now(1600, p.planned_time(1600))[0], "Fastest")  # even back on PR pace
+
+    def test_falling_back_plans_the_fastest_afresh_from_here(self):
+        p = choose(CLIMB, RIDER, pr_s=BEST + 30)
+        name, watts, gap = p.now(1500, p.planned_time(1500) + 120)
+        self.assertEqual(name, "Fastest")
+        self.assertAlmostEqual(gap, 0, delta=0.5)  # not the bigger gap to the plan made at the start line
+        rest = p.next
+        self.assertAlmostEqual(sum(rest.lengths), 1500)
+        self.assertAlmostEqual(watts, fastest(rest.lengths, rest.ab, RIDER)[0], delta=1)
+
+
+class EntryTest(unittest.TestCase):
+    def test_riding_in_at_ftp_is_a_flat_road_speed(self):
+        self.assertTrue(9 < entry_speed(CLIMB, RIDER) < 12)
+
+    def test_fast_entry_needs_fewer_watts_slow_entry_more(self):
+        flying, still, standing = (Pacer(CLIMB, RIDER, 700, v0=v).power for v in (entry_speed(CLIMB, RIDER), None, 1.0))
+        self.assertLess(flying, still)
+        self.assertLess(still, standing)
+        self.assertAlmostEqual(Pacer(CLIMB, RIDER, 700, v0=11.0).planned_time(3000), 700, delta=0.5)
+
+    def test_a_fast_entry_coasts_down_as_a_fine_simulation_does(self):
+        (a, b), m, v, p = AB[0], RIDER.inertia(), 11.0, 330.0
+        t = x = 0.0
+        while x < LENGTHS[0]:
+            v1 = v + (p - a * v - b * v ** 3) / (m * v * v) * 0.05
+            t, x, v = t + 0.05 / ((v + v1) / 2), x + 0.05, v1
+        self.assertAlmostEqual(section_times(p, LENGTHS[:1], AB[:1], 11.0, m)[0], t, delta=0.3)
 
 
 if __name__ == "__main__":

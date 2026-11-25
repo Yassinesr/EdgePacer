@@ -48,6 +48,8 @@ The rider chooses nothing. EdgePacer tries, in order:
 - **Target:** the record minus 1 %, at least 2 s, because Strava's GPS timing differs from the Edge's by 1–3 s.
 - **Out of reach mid-climb:** once even the most the rider can hold for the time left (with the reserve they have
   left) can't make the target, EdgePacer drops to the next one **for good**. The letter flashes and the Edge beeps once.
+  Falling back to Fastest plans it **afresh from where the rider is** (the gap starts at 0): Fastest is always the
+  hardest target from the start line, so the plan made there would only ask for more.
 - **FTP looks out of date:** if the PR ride's measured power is above what the Garmin FTP allows for that long,
   the idle line says so **before** the climb. A warning only: one ride (a tailwind, a one-sided meter) never changes
   the FTP.
@@ -65,6 +67,10 @@ The rider chooses nothing. EdgePacer tries, in order:
   model: it drains above FTP and refills below it. Fresh, this reaches FTP at one hour. **The same ceiling sets the
   watts shown and decides when a target is out of reach,** so "K" never stays up while the plan needs 640 W.
 - **Fastest:** the even power where the climb's time equals the time that power can be held.
+- **Entry speed:** every plan assumes riding in at FTP on the flat (about 40 km/h at 300 W): Strava's clock starts at
+  the line, and up to FTP the run-in costs none of the reserve the climb needs. The first metres are integrated in
+  10 m steps as the speed falls to the climb's steady speed, so a flying start lowers the watts to hold. A slow entry
+  pays the energy to speed up. The road before the start isn't in the segment, so it is taken as flat.
 - **Reference curve:** where the rider must be at each metre to finish exactly at the target time. It's the PR ride
   (or, without one, the plan), scaled to end at the target time. **Every gap on screen reads from it.**
 - **Watts after 20 s of steady riding:** the rider's own smoothed power × (model watts needed ÷ model watts at their
@@ -75,9 +81,9 @@ The rider chooses nothing. EdgePacer tries, in order:
 
 | State | When | Screen (top half of the rider's page) |
 |---|---|---|
-| Idle | not on a climb | 3 s power; the climb count, "no GPS" / "weak GPS", or the sync age once over 14 days |
-| Approach | within 500 m of a climb start that is still ahead | target letter; metres to the start, large; climb name (or "FTP looks out of date"); "start 309 W  22 km/h", the plan's watts and speed for the first section. The target is planned here, so nothing heavy runs at the start line |
-| Active | crossed the start line of a climb ≥ 2 % | target letter (K, P or F); the gap, large, with the word "ahead" or "behind"; watts to hold, small; distance to go and grade |
+| Idle | not on a climb | it replaces the power field: "3S POWER", 3 s power large, its zone as a coloured tag and a zone bar with a mark at FTP; the climb count, "no GPS" / "weak GPS", or the sync age once over 14 days |
+| Approach | within 500 m of a climb start that is still ahead | climb name in orange (or "FTP looks out of date"); 3 s power large, the target letter beside it; the metres to the start and a "ride in 300 W" tag (FTP, see entry speed); a bar of 3 s power against it: blue under, green on it, red over. The target is planned here, so nothing heavy runs at the start line |
+| Active | crossed the start line of a climb ≥ 2 % | "PR PACE  2.1 km  6%"; the gap, large, green ahead or red behind, "s ahead" / "s behind"; the target letter; a "hold 307 W" tag in the target's colour (orange KOM/QOM, blue PR, grey fastest); the climb's progress as a bar |
 | Finished | crossed the finish line | result for 5 s ("NEW PR −2.6 s"), then back to idle |
 | Can't pace | bad profile, no climbs built in, no GPS fix | "SET FTP", "SET WEIGHT" or "NO CLIMBS" instead of numbers; "no GPS fix" on the bottom line while pacing |
 
@@ -149,4 +155,5 @@ that says what the rider must set up; one segment per stretch of road where segm
 - Strava's `hazardous` field (stored when present).
 - Whether ClimbPro or Strava Live Segments covers the field, or shows a second, different gap.
 - The data field memory limit on the 540 and newer.
-- Entry speed is not modelled: on climbs under ~1 minute the plan is optimistic. The ghost gap is not affected.
+- Riding in at FTP on the flat as the entry: unchecked against real starts; a corner or a hill before the line means a
+  slower start than planned, which shows as "behind" from the line.

@@ -14,7 +14,7 @@ import bisect
 import csv
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 G = 9.81
 CAP = 50 / 3.6       # m/s, top speed on descents: corners and braking can't be modelled
@@ -24,6 +24,7 @@ MAX_FTP = 1.5        # never ask for more than 1.5 x FTP, whatever the reserve s
 STEADY_S = 20.0      # s of steady riding on the climb before watts come from the rider's own power
 RESTART_S = 10.0     # s after a stop with no watts shown, so nobody sprints away from a red light
 NEWTON = 8           # Newton steps in speed_for: converged to a mm/s from CAP on any grade
+STEP_M = 10.0        # m, integration step while a fast entry slows to the climb's steady speed
 
 
 @dataclass
@@ -59,6 +60,10 @@ class Rider:
     def max_power(self, seconds, w_left=None):
         """Even power the rider can hold for this long with this much reserve left: the curve, never above 1.5 x FTP."""
         return min(MAX_FTP * self.ftp, self.curve(seconds, w_left))
+
+    def inertia(self):
+        """Rider and bike mass over drivetrain efficiency: kinetic energy in the meter's watts."""
+        return (self.rider_kg + self.bike_kg) / self.eff
 
     def w_after(self, w, watts, seconds):
         """Reserve left after riding at `watts` for `seconds` (Skiba): drains above FTP, refills below it."""
@@ -151,31 +156,53 @@ def speed_for(p, a, b):
     return v
 
 
-def ride_time(p, lengths, ab):
-    """Seconds to ride these sections at even power p."""
-    return sum(length / speed_for(p, a, b) for length, (a, b) in zip(lengths, ab))
+def section_times(p, lengths, ab, v0=None, inertia=0.0):
+    """Seconds per section at even meter power p. Entering at v0 m/s (inertia: total mass / drivetrain efficiency):
+    a fast entry coasts down to the steady speed, integrated in STEP_M steps, which saves time; a slow one pays the
+    energy to speed up at power p. After that every section is ridden at its steady speed."""
+    ts, v = [], v0
+    for length, (a, b) in zip(lengths, ab):
+        vs, t, x = speed_for(p, a, b), 0.0, 0.0
+        if v is not None and v < vs:
+            # shortcut: ignores the air drag while speeding up, up to 3 s pessimistic on a fast flat start; integrate if it matters
+            t, v = 0.5 * inertia * (vs * vs - v * v) / p, None
+        while v is not None and v - vs >= 0.1 and x < length:
+            dx = min(STEP_M, length - x)
+            vm = max(v + (p - a * v - b * v ** 3) / (inertia * v * v) * dx / 2, vs)  # midpoint step
+            v = max(v + (p - a * vm - b * vm ** 3) / (inertia * vm * vm) * dx, vs)
+            t, x = t + dx / vm, x + dx
+        if v is not None and v - vs < 0.1:
+            v = None  # settled
+        ts.append(t + (length - x) / vs)
+    return ts
 
 
-def solve(lengths, ab, time_left):
+def ride_time(p, lengths, ab, v0=None, inertia=0.0):
+    """Seconds to ride these sections at even power p, entering at v0 (section_times)."""
+    return sum(section_times(p, lengths, ab, v0, inertia))
+
+
+def solve(lengths, ab, time_left, v0=None, inertia=0.0):
     """Even power that rides these sections in time_left, or None if it needs more than MAX_P."""
-    if not lengths or time_left <= 0 or ride_time(MAX_P, lengths, ab) > time_left:
+    if not lengths or time_left <= 0 or ride_time(MAX_P, lengths, ab, v0, inertia) > time_left:
         return None
     lo, hi = 0.0, MAX_P
     for _ in range(40):
         p = (lo + hi) / 2
-        if ride_time(p, lengths, ab) > time_left:
+        if ride_time(p, lengths, ab, v0, inertia) > time_left:
             lo = p
         else:
             hi = p
     return hi
 
 
-def fastest(lengths, ab, rider, w_left=None):
-    """(watts, seconds): the fastest even-power ride the rider can hold on these sections with this much reserve left."""
+def fastest(lengths, ab, rider, w_left=None, v0=None):
+    """(watts, seconds): the fastest even-power ride the rider can hold on these sections with this much reserve left,
+    entering at v0 m/s if given."""
     lo, hi = 1.0, 4 * 3600.0
     for _ in range(40):
         t = (lo + hi) / 2
-        if ride_time(rider.max_power(t, w_left), lengths, ab) > t:
+        if ride_time(rider.max_power(t, w_left), lengths, ab, v0, rider.inertia()) > t:
             lo = t
         else:
             hi = t
@@ -187,35 +214,45 @@ def beat(record_s, margin=0.01, min_s=2.0):
     return record_s - max(min_s, margin * record_s)
 
 
+def entry_speed(sections, rider):
+    """The speed to arrive at: riding in at FTP on a flat road, as fast as possible without touching the reserve the
+    climb needs (above FTP). Strava's clock starts at the line, so the run-in is free speed."""
+    # shortcut: the run-in's grade isn't in the segment, so it is taken as flat; add the road before the start if starts on a hill matter
+    return speed_for(rider.ftp, *coeffs(Section(1.0, 0.0, sections[0].alt), rider))
+
+
 class Pacer:
     """Live pacing on one segment at even power, toward one target.
     The reference curve says where the rider must be at each metre to finish exactly at target_s: the PR ride (ghost,
     {"distance": [...], "time": [...]} from the segment start) when given, else this plan, either one scaled to
     end at target_s. Every gap reads from it. The watts never exceed what the rider can hold (Rider.max_power).
-    next: the target to fall back to, for good, once this one is out of reach. w_left: the reserve at the start line."""
+    next: the target to fall back to, for good, once this one is out of reach. w_left: the reserve at the start line.
+    v0: the speed at the start line, if known (entry_speed); the plan then uses the momentum.
+    d0, t0: where and when this plan starts, for a fallback that starts mid-climb (restart)."""
 
-    def __init__(self, sections, rider, target_s, ghost=None, name="Target", next=None, w_left=None):
+    def __init__(self, sections, rider, target_s, ghost=None, name="Target", next=None, w_left=None, v0=None):
         self.rider, self.target_s, self.name, self.next, self.dropped = rider, target_s, name, next, False
+        self.sections, self.d0, self.t0 = sections, 0.0, 0.0
         self.lengths = [s.length for s in sections]
         self.ab = [coeffs(s, rider) for s in sections]
-        self.power = self._watts(self.lengths, self.ab, target_s, w_left)
+        self.power = self._watts(self.lengths, self.ab, target_s, w_left, v0)
         if ghost:
             d, t = clean(ghost["distance"], ghost["time"])
         else:
             d, t = [0.0], [0.0]
-            for length, (a, b) in zip(self.lengths, self.ab):
+            for length, secs in zip(self.lengths, section_times(self.power, self.lengths, self.ab, v0, rider.inertia())):
                 d.append(d[-1] + length)
-                t.append(t[-1] + length / speed_for(self.power, a, b))
+                t.append(t[-1] + secs)
         scale_d, scale_t = sum(self.lengths) / d[-1], target_s / t[-1]  # the recording measures the climb a little differently
         self.curve = ([x * scale_d for x in d], [x * scale_t for x in t])
         self.ghost = bool(ghost)
 
-    def _need_and_cap(self, lengths, ab, time_left, w_left=None):
-        cap, _ = fastest(lengths, ab, self.rider, w_left)  # one ceiling for the watts shown and for "out of reach"
-        return solve(lengths, ab, time_left), cap
+    def _need_and_cap(self, lengths, ab, time_left, w_left=None, v0=None):
+        cap, _ = fastest(lengths, ab, self.rider, w_left, v0)  # one ceiling for the watts shown and for "out of reach"
+        return solve(lengths, ab, time_left, v0, self.rider.inertia()), cap
 
-    def _watts(self, lengths, ab, time_left, w_left=None):
-        need, cap = self._need_and_cap(lengths, ab, time_left, w_left)
+    def _watts(self, lengths, ab, time_left, w_left=None, v0=None):
+        need, cap = self._need_and_cap(lengths, ab, time_left, w_left, v0)
         return cap if need is None else min(need, cap)
 
     def planned_time(self, done_m):
@@ -233,21 +270,24 @@ class Pacer:
         since_stop_s: seconds since the rider last got going after a stop on this climb; no watts for RESTART_S."""
         if self.dropped:
             return self.next.now(done_m, elapsed_s, w_left, power, speed, steady_s, since_stop_s)
-        gap = self.planned_time(done_m) - elapsed_s
+        here, since = done_m - self.d0, elapsed_s - self.t0
+        gap = self.planned_time(here) - since
         lengths, ab, start = [], [], 0.0
         for length, coef in zip(self.lengths, self.ab):
-            left = start + length - done_m
+            left = start + length - here
             if left > 1e-6:
                 lengths.append(min(left, length))
                 ab.append(coef)
             start += length
         if not lengths:
             return self.name, None, gap
-        need, cap = self._need_and_cap(lengths, ab, self.target_s - elapsed_s, w_left)
+        need, cap = self._need_and_cap(lengths, ab, self.target_s - since, w_left)
         if gap >= 0:
             watts = min(self.power, cap)
         elif self.next and (need is None or need > cap):
             self.dropped = True
+            if self.next.next is None:  # the last target: the fastest from here on, not from the start line
+                self.next = self.next.restart(done_m, elapsed_s, w_left, speed)
             return self.next.now(done_m, elapsed_s, w_left, power, speed, steady_s, since_stop_s)
         else:
             watts = cap if need is None else min(need, cap)
@@ -260,16 +300,31 @@ class Pacer:
         return self.name, watts, gap
 
 
-def choose(sections, rider, kom_s=None, pr_s=None, ghost=None, w_left=None):
+    def restart(self, done_m, elapsed_s, w_left=None, speed=None):
+        """This target planned afresh from done_m at elapsed_s: the fastest the rider can still ride the rest, so its
+        gap starts at zero. Falling back to the plan made at the start line would ask for even more."""
+        rest, start = [], 0.0
+        for s in self.sections:
+            left = start + s.length - done_m
+            if left > 1e-6:
+                rest.append(replace(s, length=min(left, s.length)))
+            start += s.length
+        _, best = fastest([s.length for s in rest], [coeffs(s, self.rider) for s in rest], self.rider, w_left, speed)
+        p = Pacer(rest, self.rider, best, name=self.name, w_left=w_left, v0=speed)
+        p.d0, p.t0 = done_m, elapsed_s
+        return p
+
+
+def choose(sections, rider, kom_s=None, pr_s=None, ghost=None, w_left=None, v0=None):
     """What to chase, with no input from the rider: the KOM (or QOM) if they can beat it, then their PR if they can,
-    then the fastest they can hold. Returns the first Pacer; the others are its fallbacks."""
+    then the fastest they can hold. Returns the first Pacer; the others are its fallbacks. v0: entry speed."""
     lengths, ab = [s.length for s in sections], [coeffs(s, rider) for s in sections]
-    _, best = fastest(lengths, ab, rider, w_left)
-    pacer = Pacer(sections, rider, best, name="Fastest", w_left=w_left)
+    _, best = fastest(lengths, ab, rider, w_left, v0)
+    pacer = Pacer(sections, rider, best, name="Fastest", w_left=w_left, v0=v0)
     if pr_s and best <= beat(pr_s):
-        pacer = Pacer(sections, rider, beat(pr_s), ghost, "PR", pacer, w_left)
+        pacer = Pacer(sections, rider, beat(pr_s), ghost, "PR", pacer, w_left, v0)
     if kom_s and best <= beat(kom_s):
-        pacer = Pacer(sections, rider, beat(kom_s), None, "KOM", pacer, w_left)
+        pacer = Pacer(sections, rider, beat(kom_s), None, "KOM", pacer, w_left, v0)
     return pacer
 
 
@@ -341,8 +396,9 @@ def main():
     pr = parse_time(a.pr) if a.pr else seg and seg["pr_s"]
     if seg and ftp_out_of_date(rider, pr, seg.get("pr_watts")):
         print(f"FTP looks out of date: your PR ride here averaged {seg['pr_watts']:.0f} W. Update it in Garmin Connect.")
-    pacer = choose(secs, rider, kom, pr, seg and seg.get("ghost"))
-    _, best = fastest(pacer.lengths, pacer.ab, rider)
+    v_in = entry_speed(secs, rider)
+    pacer = choose(secs, rider, kom, pr, seg and seg.get("ghost"), v0=v_in)
+    _, best = fastest(pacer.lengths, pacer.ab, rider, v0=v_in)
     chain, p = [], pacer
     while p:
         chain.append(p.name)
@@ -351,6 +407,7 @@ def main():
     print(f"Fastest your FTP allows: {fmt_time(best)}" + (f" (record {fmt_time(kom)})" if kom else ""))
     print(f"Chasing {' -> '.join(chain)}: aim {fmt_time(pacer.target_s)}, hold {pacer.power:.0f} W "
           f"({pacer.power / a.weight:.2f} W/kg)" + (", measured against your PR ride" if pacer.ghost else ""))
+    print(f"Ride in at {rider.ftp:.0f} W (about {v_in * 3.6:.0f} km/h on the flat): the clock starts at the line.")
     print(f"{'km':>5} {'grade':>6} {'km/h':>6} {'be here at':>10}")
     done = 0.0
     for s, coef in zip(secs, pacer.ab):
