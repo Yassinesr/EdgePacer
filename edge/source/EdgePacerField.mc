@@ -15,7 +15,7 @@ import Toybox.WatchUi;
 class EdgePacerField extends WatchUi.DataField {
     const RESULT_MS = 5000;    // the result stays this long, then back to idle
     const FLASH_MS = 2000;     // colours swap this long when the target changes
-    const NEAR_M = 1000.0;     // a climb start this close is named while idle
+    const NEAR_M = 500.0;      // this close to a climb start the approach screen replaces the 3 s power
     const OLD_S = 1209600;     // climbs synced more than 14 days ago ask for a sync
     const NAMES = {"K" => "KOM", "Q" => "QOM", "P" => "PR", "F" => "best"};
     const CODES = {"K" => 1, "Q" => 2, "P" => 3, "F" => 4};  // the ride file's target field; 0 between climbs
@@ -28,6 +28,7 @@ class EdgePacerField extends WatchUi.DataField {
     var wBal = 0.0, p3 = null, p10 = null, v10 = null;  // reserve, ~3 s and ~10 s power, ~10 s speed
     var tr = null, target = null, startMs = 0, steady = 0, sinceStop = null, lastDone = 0.0, lastElapsed = 0.0;
     var out = null, letter = null, flashUntil = 0, result = null, resultUntil = 0, hint = null, hintM = 0.0;
+    var ahead = null, aheadFor = null;  // the target planned on the approach to `aheadFor`
     var fGap, fWatts, fTarget, fSpeed;
 
     function initialize() {
@@ -109,19 +110,27 @@ class EdgePacerField extends WatchUi.DataField {
                 sinceStop = null;
                 lastDone = 0.0;
                 lastElapsed = (ms - startMs) / 1000.0;
-                var c = t.climb;
-                target = Pacer.choose(c["sec"], rider, c[recKey], recLetter, c["pr"], c["ghost"], wBal);
+                target = aheadFor == t ? ahead : plan(t);  // planned on the approach: no search at the start line
                 letter = target.letter;
                 hint = null;
                 return;
             }
             var d = t.toStart(p);
-            if (d < near) {
+            if (d < near && t.prevAlong < 0) {  // only starts still ahead, not one just ridden
                 near = d;
                 hint = t;
                 hintM = d;
             }
         }
+        if (hint != aheadFor) {
+            aheadFor = hint;
+            ahead = hint == null ? null : plan(hint);
+        }
+    }
+
+    function plan(t) {
+        var c = t.climb;
+        return Pacer.choose(c["sec"], rider, c[recKey], recLetter, c["pr"], c["ghost"], wBal);
     }
 
     function pace(done, ms, v) {
@@ -175,6 +184,9 @@ class EdgePacerField extends WatchUi.DataField {
     function stop() {
         tr = null;
         target = null;
+        ahead = null;  // a target, once ridden, may have dropped: plan afresh next time
+        aheadFor = null;
+        hint = null;
         out = null;
         letter = null;
     }
@@ -210,12 +222,7 @@ class EdgePacerField extends WatchUi.DataField {
             fit(dc, result[2], TXT, w / 2, top + line, w, line);
         } else if (out != null) {
             var g = Math.round(out[2]).toNumber(), name = NAMES[out[0]];
-            var r = (h < w ? h : w) / 9;  // badge with the target letter, top right
-            dc.fillCircle(w - r - 4, r + 4, r);
-            dc.setColor(bg, Graphics.COLOR_TRANSPARENT);
-            dc.drawText(w - r - 4, r + 4, Graphics.FONT_SMALL, out[0], Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
-            dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
-            number(dc, g.toString(), "s", w, top, 2 * r + 8);  // no "+": number fonts may lack it; colour and words say ahead
+            number(dc, g.toString(), "s", w, top, badge(dc, out[0], w, h, fg, bg));  // no "+": number fonts may lack it; colour and words say ahead
             if (g != 0) {
                 var good = g > 0;
                 dc.setColor(good ? (bg == Graphics.COLOR_BLACK ? Graphics.COLOR_GREEN : Graphics.COLOR_DK_GREEN) : Graphics.COLOR_RED, Graphics.COLOR_TRANSPARENT);
@@ -226,24 +233,35 @@ class EdgePacerField extends WatchUi.DataField {
             }
             var left = ((tr.total - lastDone) / 1000.0).format("%.1f") + " km " + (target.gradeAt(lastDone) * 100).format("%.0f") + "%";
             fit(dc, noFix ? "no GPS fix" : (out[1] == null ? left : "hold " + Math.round(out[1]).toNumber() + " W  " + left), TXT, w / 2, top + line, w, line);
+        } else if (ahead != null) {
+            // approaching a climb: the countdown, the target, and the watts and speed to arrive at
+            number(dc, ((hintM / 10).toNumber() * 10).toString(), "m", w, top, badge(dc, ahead.letter, w, h, fg, bg));
+            var c = aheadFor.climb;
+            fit(dc, Pacer.ftpOutOfDate(rider, c["pr"], c["prw"]) ? "FTP looks out of date" : c["name"], TXT, w / 2, top, w, line);
+            var start = "start " + Math.round(ahead.power).toNumber() + " W  " + (ahead.speedAt(0.0, ahead.power) * 3.6).format("%.0f") + " km/h";
+            fit(dc, noFix ? gpsNote : start, TXT, w / 2, top + line, w, line);
         } else {
             number(dc, p3 == null ? "--" : Math.round(p3).toNumber().toString(), "W", w, top, 0);
-            fit(dc, hint == null ? "EdgePacer" : hint.climb["name"], TXT, w / 2, top, w, line);
+            fit(dc, "EdgePacer", TXT, w / 2, top, w, line);
             var note = trackers.size() + (trackers.size() == 1 ? " climb" : " climbs");
+            var age = Time.now().value() - synced;
             if (noFix) {
                 note = gpsNote;
-            } else if (hint == null) {
-                var age = Time.now().value() - synced;
-                if (age > OLD_S) {
-                    note = "climbs " + age / 86400 + " days old";
-                }
-            } else if (Pacer.ftpOutOfDate(rider, hint.climb["pr"], hint.climb["prw"])) {
-                note = "FTP looks out of date";
-            } else {
-                note = "starts in " + hintM.toNumber() + " m";
+            } else if (age > OLD_S) {
+                note = "climbs " + age / 86400 + " days old";
             }
             fit(dc, note, TXT, w / 2, top + line, w, line);
         }
+    }
+
+    // the target letter in a disc, top right; returns the margin the big number must keep clear of it
+    function badge(dc, text, w, h, fg, bg) {
+        var r = (h < w ? h : w) / 9;
+        dc.fillCircle(w - r - 4, r + 4, r);
+        dc.setColor(bg, Graphics.COLOR_TRANSPARENT);
+        dc.drawText(w - r - 4, r + 4, Graphics.FONT_SMALL, text, Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER);
+        dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
+        return 2 * r + 8;
     }
 
     // the big number with its unit after it, centred in the top part, clear of `margin` px each side

@@ -75,7 +75,8 @@ The rider chooses nothing. EdgePacer tries, in order:
 
 | State | When | Screen (top half of the rider's page) |
 |---|---|---|
-| Idle | not on a climb | 3 s power; within 1 km of a climb start: its name and "starts in 600 m", or "FTP looks out of date" when it applies; otherwise the climb count, or the sync age once over 14 days |
+| Idle | not on a climb | 3 s power; the climb count, "no GPS" / "weak GPS", or the sync age once over 14 days |
+| Approach | within 500 m of a climb start that is still ahead | target letter; metres to the start, large; climb name (or "FTP looks out of date"); "start 309 W  22 km/h", the plan's watts and speed for the first section. The target is planned here, so nothing heavy runs at the start line |
 | Active | crossed the start line of a climb ≥ 2 % | target letter (K, P or F); the gap, large, with the word "ahead" or "behind"; watts to hold, small; distance to go and grade |
 | Finished | crossed the finish line | result for 5 s ("NEW PR −2.6 s"), then back to idle |
 | Can't pace | bad profile, no climbs built in, no GPS fix | "SET FTP", "SET WEIGHT" or "NO CLIMBS" instead of numbers; "no GPS fix" on the bottom line while pacing |
