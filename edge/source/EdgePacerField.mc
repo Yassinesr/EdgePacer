@@ -148,7 +148,8 @@ class EdgePacerField extends WatchUi.DataField {
             return;
         }
         if (v == null || v > 1.0) {  // no speed reading is not a stop
-            steady++;
+            // speeding up or coasting down isn't steady: momentum does part of the work and the watts would read low
+            steady = v != null && v10 != null && (v - v10).abs() > 0.5 ? 0 : steady + 1;
             if (sinceStop != null) {
                 sinceStop++;
             }
@@ -239,8 +240,8 @@ class EdgePacerField extends WatchUi.DataField {
             label(dc, Pacer.ftpOutOfDate(rider, c["pr"], c["prw"]) ? "FTP LOOKS OUT OF DATE" : c["name"], Graphics.COLOR_ORANGE, w, lab);
             number(dc, power, "W", fg, w, lab, big, badge(dc, ahead.letter, w, h, lab));
             dc.setColor(fg, Graphics.COLOR_TRANSPARENT);
-            fit(dc, noFix ? gpsNote : ((hintM / 10).toNumber() * 10) + " m", TXT, w / 4, lab + big, w / 2, row);
-            pill(dc, "ride in " + entry + " W", TINT[ahead.letter], w * 3 / 4, lab + big, row, w / 2 - 8);
+            fit(dc, noFix ? gpsNote : ((hintM / 10).toNumber() * 10) + " m", TXT, w * 19 / 100, lab + big, w * 36 / 100, row);
+            pill(dc, "ride in " + entry + " W", TINT[ahead.letter], w * 68 / 100, lab + big, row, w * 60 / 100);
             var r = p3 == null ? 0.0 : p3 / entry;
             bar(dc, r / 1.5, r < 0.95 ? Graphics.COLOR_BLUE : (r > 1.05 ? Graphics.COLOR_RED : good), 1 / 1.5, w, barY, barH, dark);
         } else {
@@ -299,8 +300,8 @@ class EdgePacerField extends WatchUi.DataField {
 
     // text on a rounded tag in its colour, centred on cx in the band y..y+bh, at most mw wide
     function pill(dc, text, tint, cx, y, bh, mw) {
-        var ph = bh * 8 / 10, f = font(dc, text, TXT, mw - ph, ph * 9 / 10);
-        var pw = dc.getTextWidthInPixels(text, f) + ph;
+        var ph = bh * 8 / 10, f = font(dc, text, TXT, mw - ph / 2, ph * 9 / 10);
+        var pw = dc.getTextWidthInPixels(text, f) + ph / 2;
         dc.setColor(tint, Graphics.COLOR_TRANSPARENT);
         dc.fillRoundedRectangle(cx - pw / 2, y + (bh - ph) / 2, pw, ph, ph / 2);
         dc.setColor(tint == Graphics.COLOR_YELLOW ? Graphics.COLOR_BLACK : Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
