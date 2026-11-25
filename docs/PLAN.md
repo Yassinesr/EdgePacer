@@ -119,7 +119,7 @@ Mockups at Edge 540/840 size: [layout/on-your-page.png](layout/on-your-page.png)
 - The even-power solve is one 1-D search; speed per section uses 8 Newton steps (the model does too). On the bike it
   runs once a second (the watts to hold and the ceiling), and three searches at the start line. Whether that stays
   inside Connect IQ's time limit on a long climb is unmeasured: check with the simulator's profiler.
-- Memory: every built-in climb loads at once. Fine for about 15 climbs; measure on the 540 before adding more.
+- Memory: every built-in climb loads at once. Simulator, Edge 540, 1 climb: 17.9 of 124.5 kB. Measure with 15.
 - Climbs are built into the app (`model/export_edge.py` → `edge/resources/jsonData/climbs.json`, kept out of git),
   so new climbs or PRs need a sync and a rebuild until they come through the phone.
 - Permissions: `UserProfile`, `Positioning`, `FitContributor`, and `Communications` once climbs come through the phone.

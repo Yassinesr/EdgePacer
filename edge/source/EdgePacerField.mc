@@ -80,7 +80,7 @@ class EdgePacerField extends WatchUi.DataField {
             result = null;
         }
         var loc = info.currentLocation, acc = info.currentLocationAccuracy;
-        noFix = loc == null || acc == null || acc < Position.QUALITY_USABLE;
+        noFix = loc == null || (acc != null && acc < Position.QUALITY_USABLE);  // ride-file playback gives no accuracy
         if (rider != null && !noFix) {
             var secs = lastFixMs == null ? 1 : (ms - lastFixMs + 500) / 1000;
             lastFixMs = ms;
@@ -134,7 +134,7 @@ class EdgePacerField extends WatchUi.DataField {
             finish(lastElapsed + (tr.total - lastDone) / (done - lastDone) * (elapsed - lastElapsed), ms);
             return;
         }
-        if (v != null && v > 1.0) {
+        if (v == null || v > 1.0) {  // no speed reading is not a stop
             steady++;
             if (sinceStop != null) {
                 sinceStop++;
@@ -228,8 +228,10 @@ class EdgePacerField extends WatchUi.DataField {
         } else {
             number(dc, p3 == null ? "--" : Math.round(p3).toNumber().toString(), "W", w, top, 0);
             fit(dc, hint == null ? "EdgePacer" : hint.climb["name"], TXT, w / 2, top, w, line);
-            var note = trackers.size() + " climbs";
-            if (hint == null) {
+            var note = trackers.size() + (trackers.size() == 1 ? " climb" : " climbs");
+            if (noFix) {
+                note = "no GPS fix";
+            } else if (hint == null) {
                 var age = Time.now().value() - synced;
                 if (age > OLD_S) {
                     note = "climbs " + age / 86400 + " days old";
