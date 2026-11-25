@@ -24,7 +24,7 @@ class EdgePacerField extends WatchUi.DataField {
 
     var rider = null, status = null, recKey = "kom", recLetter = "K";
     var trackers = [], synced = 0;
-    var lastFixMs = null, noFix = false;
+    var lastFixMs = null, noFix = false, gpsNote = "";
     var wBal = 0.0, p3 = null, p10 = null, v10 = null;  // reserve, ~3 s and ~10 s power, ~10 s speed
     var tr = null, target = null, startMs = 0, steady = 0, sinceStop = null, lastDone = 0.0, lastElapsed = 0.0;
     var out = null, letter = null, flashUntil = 0, result = null, resultUntil = 0, hint = null, hintM = 0.0;
@@ -81,6 +81,7 @@ class EdgePacerField extends WatchUi.DataField {
         }
         var loc = info.currentLocation, acc = info.currentLocationAccuracy;
         noFix = loc == null || (acc != null && acc < Position.QUALITY_USABLE);  // ride-file playback gives no accuracy
+        gpsNote = loc == null ? "no GPS" : "weak GPS " + acc;  // Position.Quality: 1 last known, 2 poor
         if (rider != null && !noFix) {
             var secs = lastFixMs == null ? 1 : (ms - lastFixMs + 500) / 1000;
             lastFixMs = ms;
@@ -230,7 +231,7 @@ class EdgePacerField extends WatchUi.DataField {
             fit(dc, hint == null ? "EdgePacer" : hint.climb["name"], TXT, w / 2, top, w, line);
             var note = trackers.size() + (trackers.size() == 1 ? " climb" : " climbs");
             if (noFix) {
-                note = "no GPS fix";
+                note = gpsNote;
             } else if (hint == null) {
                 var age = Time.now().value() - synced;
                 if (age > OLD_S) {
